@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,17 +12,23 @@ const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
     try {
       const formData = new FormData();
       formData.append("email", email);
       await api.post("/auth/forgot-password", formData);
+      // Only show success if backend confirms email exists and was sent
       setSent(true);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Something went wrong");
+      const message = err.response?.data?.message || "Something went wrong. Please try again.";
+      // Show specific message if email not found
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -36,14 +42,28 @@ const ForgotPassword = () => {
             <AssignifyLogo size="md" variant="dark" showText={false} />
           </div>
           <h1 className="font-display text-2xl text-foreground">Reset Password</h1>
-          <p className="text-sm text-muted-foreground">Enter your email and we'll send you a reset link</p>
+          <p className="text-sm text-muted-foreground">
+            Enter your registered email and we'll send you a reset link
+          </p>
         </div>
 
         {sent ? (
           <div className="text-center space-y-4">
-            <div className="bg-success/10 text-success rounded-lg p-4 text-sm">
-              Check your email for a reset link.
+            <div className="mx-auto h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
+              <Mail className="h-7 w-7 text-primary" />
             </div>
+            <div className="bg-success/10 text-success rounded-lg p-4 text-sm font-medium">
+              Reset link sent! Check your inbox at <strong>{email}</strong>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Didn't receive it? Check your spam folder or{" "}
+              <button
+                onClick={() => { setSent(false); setError(""); }}
+                className="text-primary hover:underline"
+              >
+                try again
+              </button>
+            </p>
             <Link to="/login" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
               <ArrowLeft className="h-4 w-4" /> Back to Login
             </Link>
@@ -57,10 +77,14 @@ const ForgotPassword = () => {
                 type="email"
                 placeholder="lecturer@university.edu"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setError(""); }}
                 required
-                className="focus-visible:ring-primary"
+                className={`focus-visible:ring-primary ${error ? "border-destructive" : ""}`}
               />
+              {/* Show inline error when email is not recognized */}
+              {error && (
+                <p className="text-xs text-destructive mt-1">{error}</p>
+              )}
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Sending..." : "Send Reset Link"}

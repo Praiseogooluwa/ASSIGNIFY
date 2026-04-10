@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { format, isPast, intervalToDuration } from "date-fns";
-import { Upload, CheckCircle2, AlertCircle, X, FileText, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, AlertCircle, X, FileText, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,6 +48,17 @@ const StudentSubmission = () => {
     group_number: "",
     file: null as File | null,
   });
+
+  // Block back button — students should never navigate back to lecturer pages
+  useEffect(() => {
+    // Push a dummy state so that the back button hits this instead of /login or /register
+    window.history.pushState(null, "", window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, "", window.location.href);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -136,8 +147,17 @@ const StudentSubmission = () => {
   const deadlinePassed = assignment ? isPast(new Date(assignment.deadline)) : false;
   const closed = assignment?.is_closed || deadlinePassed;
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-background"><LoadingSpinner /></div>;
-  if (!assignment) return <div className="min-h-screen flex items-center justify-center bg-background"><p className="text-muted-foreground">Assignment not found.</p></div>;
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <LoadingSpinner />
+    </div>
+  );
+
+  if (!assignment) return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <p className="text-muted-foreground">Assignment not found.</p>
+    </div>
+  );
 
   if (submitted) {
     return (
@@ -150,12 +170,15 @@ const StudentSubmission = () => {
             <path d="M30 40L37 47L50 34" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           <h1 className="font-display text-3xl text-foreground">Submission Received!</h1>
-          <div className="space-y-1 text-muted-foreground">
-            <p>{submittedInfo.name}</p>
+          <div className="bg-card border rounded-lg p-5 space-y-1 text-muted-foreground">
+            <p className="font-medium text-foreground">{submittedInfo.name}</p>
             <p className="font-mono text-sm">{submittedInfo.matric}</p>
-            <p>{submittedInfo.time}</p>
+            <p className="text-sm">{submittedInfo.time}</p>
           </div>
-          <p className="text-sm text-muted-foreground">You may now close this tab.</p>
+          <p className="text-sm text-muted-foreground">
+            ✅ Your submission has been recorded. You may now close this tab.
+          </p>
+          {/* NO link back to login/register/dashboard — students have no business there */}
         </div>
       </div>
     );
@@ -171,7 +194,9 @@ const StudentSubmission = () => {
           <h1 className="font-display text-2xl text-white">{assignment.title}</h1>
           <div className="text-sm text-white/70">
             <p>Deadline: {format(new Date(assignment.deadline), "EEE d MMM yyyy · h:mm a")}</p>
-            <p className={`font-mono text-xl mt-2 ${closed ? "text-red-400" : "text-emerald-400"}`}>{countdown}</p>
+            <p className={`font-mono text-xl mt-2 ${closed ? "text-red-400" : "text-emerald-400"}`}>
+              {countdown}
+            </p>
           </div>
         </div>
       </div>
@@ -184,7 +209,9 @@ const StudentSubmission = () => {
               onClick={() => setBriefOpen(!briefOpen)}
               className="w-full flex items-center justify-between px-5 py-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors duration-150"
             >
-              <span className="flex items-center gap-2"><FileText className="h-4 w-4 text-primary" /> View Assignment Brief</span>
+              <span className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-primary" /> View Assignment Brief
+              </span>
               {briefOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </button>
             <div
@@ -211,14 +238,26 @@ const StudentSubmission = () => {
         {deadlinePassed && (
           <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-lg p-4 flex items-center gap-2">
             <AlertCircle className="h-5 w-5 shrink-0" />
-            <p className="text-sm font-medium">Submissions Closed — Deadline was {format(new Date(assignment.deadline), "d MMM yyyy h:mm a")}</p>
+            <p className="text-sm font-medium">
+              Submissions Closed — Deadline was {format(new Date(assignment.deadline), "d MMM yyyy h:mm a")}
+            </p>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className={`space-y-5 bg-card rounded-lg border p-6 ${closed ? "opacity-50 pointer-events-none" : ""}`}>
+        <form
+          onSubmit={handleSubmit}
+          className={`space-y-5 bg-card rounded-lg border p-6 ${closed ? "opacity-50 pointer-events-none" : ""}`}
+        >
           <div className="space-y-2">
             <Label htmlFor="name">Full Name</Label>
-            <Input id="name" placeholder="John Doe" value={form.full_name} onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))} required className="focus-visible:ring-primary" />
+            <Input
+              id="name"
+              placeholder="John Doe"
+              value={form.full_name}
+              onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
+              required
+              className="focus-visible:ring-primary"
+            />
           </div>
 
           <div className="space-y-2">
@@ -290,7 +329,11 @@ const StudentSubmission = () => {
                     <p className="text-sm font-medium text-foreground">{form.file.name}</p>
                     <p className="text-xs text-muted-foreground">{(form.file.size / 1024).toFixed(1)} KB</p>
                   </div>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); setForm((p) => ({ ...p, file: null })); }} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setForm((p) => ({ ...p, file: null })); }}
+                    className="text-muted-foreground hover:text-foreground transition-colors duration-150"
+                  >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
