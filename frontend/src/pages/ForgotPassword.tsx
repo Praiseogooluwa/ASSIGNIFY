@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Mail } from "lucide-react";
+import { ArrowLeft, Mail, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
 import AssignifyLogo from "@/components/AssignifyLogo";
 import api from "@/api/axios";
 
@@ -22,13 +21,14 @@ const ForgotPassword = () => {
       const formData = new FormData();
       formData.append("email", email);
       await api.post("/auth/forgot-password", formData);
-      // Only show success if backend confirms email exists and was sent
       setSent(true);
     } catch (err: any) {
-      const message = err.response?.data?.message || "Something went wrong. Please try again.";
-      // Show specific message if email not found
+      // Backend returns error in "detail" field (FastAPI standard)
+      const message =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        "Something went wrong. Please try again.";
       setError(message);
-      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -53,7 +53,7 @@ const ForgotPassword = () => {
               <Mail className="h-7 w-7 text-primary" />
             </div>
             <div className="bg-success/10 text-success rounded-lg p-4 text-sm font-medium">
-              Reset link sent! Check your inbox at <strong>{email}</strong>
+              If an account exists with this email, a reset link has been sent.
             </div>
             <p className="text-xs text-muted-foreground">
               Didn't receive it? Check your spam folder or{" "}
@@ -81,9 +81,17 @@ const ForgotPassword = () => {
                 required
                 className={`focus-visible:ring-primary ${error ? "border-destructive" : ""}`}
               />
-              {/* Show inline error when email is not recognized */}
+              {/* Inline error — shown when email not found or other errors */}
               {error && (
-                <p className="text-xs text-destructive mt-1">{error}</p>
+                <div className="flex items-start gap-1.5 text-xs text-destructive mt-1">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    {error}
+                    {error.toLowerCase().includes("no account") && (
+                      <> <Link to="/register" className="underline font-semibold">Create an account →</Link></>
+                    )}
+                  </span>
+                </div>
               )}
             </div>
             <Button type="submit" className="w-full" disabled={loading}>

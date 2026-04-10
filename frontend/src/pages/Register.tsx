@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Eye, EyeOff, ArrowRight, CheckCircle2, Mail, Phone } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, CheckCircle2, Mail, Phone, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,15 +28,17 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
   const [otp, setOtp] = useState("");
   const [resending, setResending] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError("");
     if (password !== confirmPassword) {
-      toast.error("Passwords don't match");
+      setFormError("Passwords don't match");
       return;
     }
     if (password.length < 6) {
-      toast.error("Password must be at least 6 characters");
+      setFormError("Password must be at least 6 characters");
       return;
     }
     setLoading(true);
@@ -49,7 +51,15 @@ const Register = () => {
       toast.success("Verification code sent to your email!");
       setStep("verify");
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Registration failed");
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail || err.response?.data?.message || "";
+
+      if (status === 409) {
+        // Email already registered — show error and offer to go to login
+        setFormError("An account with this email already exists.");
+      } else {
+        setFormError(detail || "Registration failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -67,7 +77,8 @@ const Register = () => {
       toast.success("Account verified! Welcome to Assignify 🎉");
       navigate("/dashboard");
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Invalid code");
+      const detail = err.response?.data?.detail || err.response?.data?.message || "Invalid code";
+      toast.error(detail);
     } finally {
       setLoading(false);
     }
@@ -95,7 +106,6 @@ const Register = () => {
           <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-accent/20 blur-3xl animate-pulse-glow" />
           <div className="absolute bottom-0 right-0 w-[400px] h-[400px] rounded-full bg-primary-foreground/5 blur-3xl animate-pulse-glow" style={{ animationDelay: "1.5s" }} />
         </div>
-
         <motion.div
           className="relative z-10 max-w-sm px-8 space-y-8"
           initial={{ opacity: 0, y: 30 }}
@@ -103,27 +113,20 @@ const Register = () => {
           transition={{ duration: 0.7 }}
         >
           <div className="space-y-2">
-            <div className="h-12 w-12 rounded-2xl bg-primary-foreground/10 flex items-center justify-center mb-6">
-              <span className="text-2xl font-bold text-primary-foreground font-display">A</span>
-            </div>
-            <h1 className="font-display text-4xl font-bold text-primary-foreground leading-tight">
+            <AssignifyLogo size="lg" variant="light" showText={false} />
+            <h1 className="font-display text-4xl font-bold text-primary-foreground leading-tight pt-4">
               Start managing<br />
               <span className="text-accent">smarter.</span>
             </h1>
             <p className="text-primary-foreground/60 text-base leading-relaxed pt-2">
-              Join thousands of lecturers who save hours every week with Assignify.
+              Join lecturers who save hours every week with Assignify.
             </p>
           </div>
-
           <div className="space-y-3 pt-4">
             {["Free to get started", "No credit card needed", "Set up in under 2 minutes"].map((text, i) => (
-              <motion.div
-                key={text}
-                className="flex items-center gap-3"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.4 + i * 0.12 }}
-              >
+              <motion.div key={text} className="flex items-center gap-3"
+                initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.4 + i * 0.12 }}>
                 <CheckCircle2 className="h-4 w-4 text-accent shrink-0" />
                 <span className="text-primary-foreground/70 text-sm">{text}</span>
               </motion.div>
@@ -141,10 +144,8 @@ const Register = () => {
           transition={{ duration: 0.5, delay: 0.1 }}
         >
           {/* Mobile brand */}
-          <div className="lg:hidden flex items-center gap-3 mb-2">
-            <div className="lg:hidden mb-2">
-              <AssignifyLogo size="sm" variant="dark" />
-            </div>
+          <div className="lg:hidden mb-2">
+            <AssignifyLogo size="sm" variant="dark" />
           </div>
 
           <AnimatePresence mode="wait">
@@ -161,6 +162,19 @@ const Register = () => {
                   <p className="text-muted-foreground text-sm mt-1">Get started with Assignify for free</p>
                 </div>
 
+                {/* Inline error — shows duplicate email with sign in link */}
+                {formError && (
+                  <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 flex items-start gap-2 text-sm">
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      {formError}
+                      {formError.includes("already exists") && (
+                        <> <Link to="/login" className="underline font-semibold">Sign in instead →</Link></>
+                      )}
+                    </span>
+                  </div>
+                )}
+
                 <form onSubmit={handleRegister} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="fullName" className="text-sm font-medium">Full Name</Label>
@@ -169,7 +183,7 @@ const Register = () => {
                       type="text"
                       placeholder="Dr. Jane Smith"
                       value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
+                      onChange={(e) => { setFullName(e.target.value); setFormError(""); }}
                       required
                       className="h-11"
                     />
@@ -181,9 +195,9 @@ const Register = () => {
                       type="email"
                       placeholder="you@university.edu"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => { setEmail(e.target.value); setFormError(""); }}
                       required
-                      className="h-11"
+                      className={`h-11 ${formError ? "border-destructive" : ""}`}
                     />
                   </div>
                   <div className="space-y-2">
@@ -194,15 +208,12 @@ const Register = () => {
                         type={showPassword ? "text" : "password"}
                         placeholder="Min. 6 characters"
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={(e) => { setPassword(e.target.value); setFormError(""); }}
                         required
                         className="h-11 pr-10"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
+                      <button type="button" onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
@@ -214,32 +225,19 @@ const Register = () => {
                       type="password"
                       placeholder="••••••••"
                       value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onChange={(e) => { setConfirmPassword(e.target.value); setFormError(""); }}
                       required
                       className="h-11"
                     />
                   </div>
-                  <Button
-                    type="submit"
-                    className="w-full h-11 font-semibold gap-2"
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" />
-                    ) : (
-                      <>
-                        Create Account
-                        <ArrowRight className="h-4 w-4" />
-                      </>
-                    )}
+                  <Button type="submit" className="w-full h-11 font-semibold gap-2" disabled={loading}>
+                    {loading ? <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" /> : (<>Create Account <ArrowRight className="h-4 w-4" /></>)}
                   </Button>
                 </form>
 
                 <p className="text-center text-sm text-muted-foreground">
                   Already have an account?{" "}
-                  <Link to="/login" className="text-primary font-medium hover:underline">
-                    Sign in
-                  </Link>
+                  <Link to="/login" className="text-primary font-medium hover:underline">Sign in</Link>
                 </p>
               </motion.div>
             ) : (
@@ -274,20 +272,13 @@ const Register = () => {
                   </InputOTP>
                 </div>
 
-                <Button
-                  className="w-full h-11 font-semibold"
-                  disabled={loading || otp.length !== 6}
-                  onClick={handleVerify}
-                >
+                <Button className="w-full h-11 font-semibold" disabled={loading || otp.length !== 6} onClick={handleVerify}>
                   {loading ? <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" /> : "Verify & Continue"}
                 </Button>
 
                 <div className="text-center space-y-2">
-                  <button
-                    onClick={handleResendCode}
-                    disabled={resending}
-                    className="text-sm text-primary hover:underline disabled:opacity-50"
-                  >
+                  <button onClick={handleResendCode} disabled={resending}
+                    className="text-sm text-primary hover:underline disabled:opacity-50">
                     {resending ? "Sending..." : "Resend code"}
                   </button>
                   <p className="text-xs text-muted-foreground">
@@ -299,13 +290,12 @@ const Register = () => {
               </motion.div>
             )}
           </AnimatePresence>
-
         </motion.div>
 
-        {/* Footer — always at bottom, never overlaps form */}
         <div className="w-full max-w-sm mx-auto border-t border-border pt-4 mt-4 space-y-1.5">
           <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-            <a href="mailto:praiseogooluwa118@gmail.com" className="flex items-center gap-1 hover:text-primary transition-colors">
+            <a href="mailto:praiseogooluwa118@gmail.com?subject=Assignify Support"
+              className="flex items-center gap-1 hover:text-primary transition-colors">
               <Mail className="h-3 w-3" />
               <span>praiseogooluwa118@gmail.com</span>
             </a>

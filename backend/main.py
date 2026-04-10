@@ -11,6 +11,7 @@ from collections import defaultdict
 import httpx
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+import jwt
 
 load_dotenv()
 
@@ -23,6 +24,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+SECRET_KEY = "iloveassignify_admin_secret_key_09029507107"  # use same one as your login
+ALGORITHM = "HS256"
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -75,7 +79,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         return user.user
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
 
+
+def create_access_token(data: dict, expires_delta: timedelta = timedelta(hours=12)):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + expires_delta
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def verify_admin_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Verify our custom admin token (simple HMAC-signed string)."""
@@ -198,12 +209,14 @@ async def login(
         })
         if not response.session:
             raise HTTPException(status_code=401, detail="Invalid credentials")
+        full_name = response.user.user_metadata.get("full_name", "") if response.user.user_metadata else ""
         return {
             "token": response.session.access_token,
             "user": {
                 "id": response.user.id,
                 "email": response.user.email,
-                "full_name": response.user.user_metadata.get("full_name", ""),
+                "full_name": full_name,
+                "display_name": full_name,
             }
         }
     except HTTPException:
@@ -220,29 +233,18 @@ async def login(
 
 @app.post("/auth/forgot-password")
 async def forgot_password(email: str = Form(...)):
-    """
-    Send password reset email.
-    BUG FIX: Now returns 404 if email is not found in Supabase,
-    so the frontend can show 'No account found with this email'.
-    Previously always returned success which was misleading.
-    """
     try:
-        # First check if this email is actually registered
-        # We use the admin API (service key) to look up the user
-        users = supabase.auth.admin.list_users()
-        user_emails = [u.email for u in users if u.email]
-        if email.lower() not in [e.lower() for e in user_emails]:
-            raise HTTPException(
-                status_code=404,
-                detail="No account found with this email address. Please check and try again."
-            )
-        # Email exists — send the reset link
-        supabase.auth.reset_password_email(email)
-        return {"message": "Password reset link sent to your email"}
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Something went wrong. Please try again.")
+        # Send reset email directly (no need to check users)
+        supabase.auth.reset_password_for_email(email)
+
+        return {"message": "If this email exists, a reset link has been sent"}
+
+    except Exception as e:
+        print("ERROR:", str(e))  # so you can see the real issue
+        raise HTTPException(
+            status_code=500,
+            detail="Something went wrong. Please try again."
+        )
 
 
 # ─── Departments ──────────────────────────────────────────────────────────────
@@ -794,10 +796,12 @@ async def admin_get_lecturers(is_admin=Depends(verify_admin_token)):
                         .execute()
                     submission_count += sub_result.count or 0
 
+            full_name = u.user_metadata.get("full_name", "Unknown") if u.user_metadata else "Unknown"
             lecturers.append({
                 "id": str(u.id),
                 "email": u.email,
-                "full_name": u.user_metadata.get("full_name", "Unknown") if u.user_metadata else "Unknown",
+                "full_name": full_name,
+                "display_name": full_name,
                 "is_verified": u.email_confirmed_at is not None,
                 "created_at": u.created_at.isoformat() if u.created_at else "",
                 "assignment_count": assignment_count,
@@ -817,48 +821,28 @@ async def admin_impersonate(
     lecturer_id: str,
     is_admin=Depends(verify_admin_token)
 ):
-    """
-    Generates a short-lived Supabase session token for a lecturer.
-    Admin can use this to open the lecturer's dashboard in a new tab.
-    Token expires in 1 hour for safety.
-    """
     try:
-        # Use Supabase admin API to generate a session for this user
-        # This creates a magic link / session without needing their password
-        response = supabase.auth.admin.generate_link({
-            "type": "magiclink",
-            "email": "",  # We'll use user ID approach instead
-        })
-    except Exception:
-        pass
+        # 🔍 get user from Supabase (DB only)
+        user_response = supabase.auth.admin.get_user_by_id(lecturer_id)
 
-    try:
-        # Get the lecturer's info
-        user = supabase.auth.admin.get_user_by_id(lecturer_id)
-        if not user or not user.user:
+        if not user_response or not user_response.user:
             raise HTTPException(status_code=404, detail="Lecturer not found")
 
-        # Sign in as the user using admin privileges
-        # This creates a valid session token
-        session = supabase.auth.admin.create_user({
-            "email": user.user.email,
-            "email_confirm": True,
+        user = user_response.user
+
+        # 🔥 create YOUR OWN token (NOT supabase)
+        token = create_access_token({
+            "sub": user.id,
+            "email": user.email,
+            "role": "lecturer",
+            "impersonated": True
         })
 
-        # The proper way with supabase-py: get an access token via admin
-        # We'll use the service key to sign a custom JWT for the user
-        # For now, return user info so admin knows who they're viewing
-        # Frontend will make API calls with admin token + lecturer_id header
-        return {
-            "lecturer_id": lecturer_id,
-            "email": user.user.email,
-            "full_name": user.user.user_metadata.get("full_name", "") if user.user.user_metadata else "",
-            "message": "Use the admin token with X-Impersonate header to view this lecturer's data"
-        }
-    except HTTPException:
-        raise
+        return {"token": token}
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Impersonation failed: {str(e)}")
+        print("ERROR:", str(e))
+        raise HTTPException(status_code=500, detail="Impersonation failed")
 
 
 # ─── Health check ─────────────────────────────────────────────────────────────

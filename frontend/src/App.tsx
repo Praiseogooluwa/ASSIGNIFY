@@ -15,6 +15,7 @@ import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
+
 const queryClient = new QueryClient();
 
 // Redirects already-logged-in lecturers away from auth pages

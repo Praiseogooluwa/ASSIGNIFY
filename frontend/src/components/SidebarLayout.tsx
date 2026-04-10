@@ -11,21 +11,48 @@ function getGreeting() {
   return "Good evening";
 }
 
-function getUserName(): string {
+// Academic titles to detect
+const TITLES = ["dr.", "prof.", "professor", "mr.", "mrs.", "ms.", "engr.", "barr.", "rev."];
+
+function getDisplayName(): string {
   try {
     const token = localStorage.getItem("ap_token");
     if (!token) return "";
     const payload = JSON.parse(atob(token.split(".")[1]));
-    const full = payload?.user_metadata?.full_name || payload?.full_name || payload?.email || "";
-    return full.split(" ")[0];
-  } catch { return ""; }
+    const full: string = payload?.user_metadata?.full_name || payload?.full_name || payload?.email || "";
+    if (!full) return "";
+
+    const parts = full.trim().split(/\s+/);
+    if (parts.length === 0) return "";
+
+    const firstLower = parts[0].toLowerCase();
+
+    // If name starts with a title (e.g. "Dr."), show "Dr. Lastname" or "Dr. Firstname"
+    if (TITLES.includes(firstLower)) {
+      if (parts.length >= 3) {
+        // e.g. "Dr. Jane Smith" → show "Dr. Jane"
+        return `${parts[0]} ${parts[1]}`;
+      } else if (parts.length === 2) {
+        // e.g. "Dr. Smith" → show "Dr. Smith"
+        return `${parts[0]} ${parts[1]}`;
+      } else {
+        // Just "Dr." — show as is
+        return parts[0];
+      }
+    }
+
+    // No title — just show first name
+    return parts[0];
+  } catch {
+    return "";
+  }
 }
 
 const SidebarLayout = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const name = getUserName();
+  const name = getDisplayName();
 
   const navItems = [
     { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -48,7 +75,9 @@ const SidebarLayout = ({ children }: { children: ReactNode }) => {
       {name && (
         <div className="px-5 pt-5 pb-2">
           <p className="text-white/40 text-xs uppercase tracking-widest font-medium">Lecturer Portal</p>
-          <p className="text-white/90 text-sm mt-1 font-medium">{getGreeting()}, <span className="text-emerald-400">{name}</span></p>
+          <p className="text-white/90 text-sm mt-1 font-medium">
+            {getGreeting()}, <span className="text-emerald-400">{name}</span>
+          </p>
         </div>
       )}
 
@@ -76,8 +105,9 @@ const SidebarLayout = ({ children }: { children: ReactNode }) => {
 
       {/* Bottom */}
       <div className="px-3 py-4 border-t border-white/10 space-y-0.5">
+        {/* Help & Support — opens email app */}
         <a
-          href="mailto:praiseogooluwa118@gmail.com"
+          href="mailto:praiseogooluwa118@gmail.com?subject=Assignify Support"
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/50 hover:text-white hover:bg-white/[0.08] transition-all duration-150"
         >
           <HelpCircle className="h-4 w-4" />

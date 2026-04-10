@@ -50,22 +50,33 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => { fetchLecturers(); }, []);
-
-  const handleImpersonate = async (lecturer: Lecturer) => {
-    setImpersonating(lecturer.id);
+  
+  const impersonateLecturer = async (lecturerId: string) => {
     try {
       const adminToken = localStorage.getItem("ap_admin_token");
-      await api.post(`/admin/impersonate/${lecturer.id}`, {}, {
-        headers: { Authorization: `Bearer ${adminToken}` },
-      });
-      // Store context for the new tab
-      localStorage.setItem("ap_impersonating", lecturer.display_name || lecturer.full_name);
-      toast.success(`Opening ${lecturer.display_name || lecturer.full_name}'s portal`);
-      window.open("/dashboard", "_blank");
-    } catch {
+
+      const res = await api.post(
+        `/admin/impersonate/${lecturerId}`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        }
+      );
+
+      // 🔥 SAVE TOKEN FIRST
+      localStorage.setItem("ap_token", res.data.token);
+
+      // optional UI flag
+      localStorage.setItem("ap_impersonating", "true");
+
+      toast.success("Entering lecturer portal...");
+
+      // 🚨 SAME TAB ONLY
+      window.location.href = "/dashboard";
+
+    } catch (error) {
+      console.error(error);
       toast.error("Failed to access lecturer portal");
-    } finally {
-      setImpersonating(null);
     }
   };
 
@@ -197,7 +208,7 @@ const AdminDashboard = () => {
                       <Button size="sm" variant="outline"
                         className="gap-1 text-primary hover:text-primary hover:bg-primary/10"
                         disabled={impersonating === l.id}
-                        onClick={() => handleImpersonate(l)}>
+                        onClick={() => impersonateLecturer(l.id)}>
                         <Eye className="h-3.5 w-3.5" />
                         {impersonating === l.id ? "Opening..." : "View Portal"}
                       </Button>
