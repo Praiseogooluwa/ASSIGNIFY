@@ -27,6 +27,13 @@ const ACCEPTED_TYPES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 
+// Format helpers — ensures nice display even if lecturer typed in lowercase
+const toTitleCase = (str: string) =>
+  str.replace(/\b\w/g, (c) => c.toUpperCase());
+
+const toSentenceCase = (str: string) =>
+  str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
+
 const StudentSubmission = () => {
   const { id } = useParams<{ id: string }>();
   const [assignment, setAssignment] = useState<Assignment | null>(null);
@@ -190,8 +197,8 @@ const StudentSubmission = () => {
       <div className="bg-[#0a1a14] py-8">
         <div className="max-w-lg mx-auto px-4 text-center space-y-3">
           <AssignifyLogo size="sm" variant="light" showText={true} />
-          <p className="text-white/60 text-sm mt-4">{assignment.course_name}</p>
-          <h1 className="font-display text-2xl text-white">{assignment.title}</h1>
+          <p className="text-white/60 text-sm mt-4">{toTitleCase(assignment.course_name)}</p>
+          <h1 className="font-display text-2xl text-white">{toTitleCase(assignment.title)}</h1>
           <div className="text-sm text-white/70">
             <p>Deadline: {format(new Date(assignment.deadline), "EEE d MMM yyyy · h:mm a")}</p>
             <p className={`font-mono text-xl mt-2 ${closed ? "text-red-400" : "text-emerald-400"}`}>
@@ -220,7 +227,7 @@ const StudentSubmission = () => {
             >
               <div className="px-5 pb-5 pt-2">
                 <div className="bg-muted/30 rounded-lg p-5 font-display text-base leading-relaxed text-foreground whitespace-pre-wrap">
-                  {assignment.instructions}
+                  {toSentenceCase(assignment.instructions || "")}
                 </div>
               </div>
             </div>

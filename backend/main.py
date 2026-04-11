@@ -12,6 +12,8 @@ import httpx
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import jwt
+import pdfplumber
+from docx import Document as DocxDocument
 
 load_dotenv()
 
@@ -32,7 +34,6 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 # ─── ADMIN CREDENTIALS (set these in your Render environment variables) ────────
-# Add ADMIN_EMAIL and ADMIN_PASSWORD to your Render env vars
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@assignify.app")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme_set_in_render")
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "admin_super_secret_key_change_this")
@@ -70,17 +71,41 @@ DEPARTMENTS = [
 # ─── Auth helpers ─────────────────────────────────────────────────────────────
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verify Supabase JWT by calling Supabase auth.get_user()"""
+    """
+    Verify token — supports both:
+    1. Supabase JWT (normal lecturer login)
+    2. Custom JWT (admin impersonation via create_access_token)
+    """
     token = credentials.credentials
+    
+    # First try our custom JWT (impersonation tokens are signed with SECRET_KEY)
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if user_id:
+            # Return a minimal user-like object for impersonated sessions
+            class ImpersonatedUser:
+                def __init__(self, uid, email):
+                    self.id = uid
+                    self.email = email
+                    self.user_metadata = {}
+            return ImpersonatedUser(user_id, payload.get("email", ""))
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        pass  # Not our custom JWT — try Supabase next
+
+    # Fall back to Supabase JWT verification
     try:
         user = supabase.auth.get_user(token)
         if not user or not user.user:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
         return user.user
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     
-
 
 def create_access_token(data: dict, expires_delta: timedelta = timedelta(hours=12)):
     to_encode = data.copy()
@@ -123,11 +148,8 @@ async def register(
 ):
     """
     Register a new lecturer.
-    - Returns 409 if email already exists (frontend shows proper error)
+    - Returns 409 if email already exists
     - Supabase sends OTP email automatically
-    NOTE: OTP digit count is controlled in Supabase Dashboard →
-          Authentication → Email Templates → OTP length setting.
-          Make sure it is set to 6 in your Supabase project settings.
     """
     try:
         response = supabase.auth.sign_up({
@@ -138,15 +160,25 @@ async def register(
                 "email_redirect_to": None,
             }
         })
+
+        # Supabase silently "succeeds" for existing emails but returns
+        # an empty identities list — catch this and return 409
         if response.user is None:
             raise HTTPException(status_code=400, detail="Registration failed. Please try again.")
+        
+        identities = getattr(response.user, "identities", None)
+        if identities is not None and len(identities) == 0:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists. Please sign in instead."
+            )
+
         return {"message": "Verification code sent to your email"}
     except HTTPException:
         raise
     except Exception as e:
         detail = str(e).lower()
         if "already registered" in detail or "already been registered" in detail or "user already registered" in detail:
-            # Return 409 so frontend can show "this email is already registered, please sign in"
             raise HTTPException(
                 status_code=409,
                 detail="An account with this email already exists. Please sign in instead."
@@ -234,13 +266,10 @@ async def login(
 @app.post("/auth/forgot-password")
 async def forgot_password(email: str = Form(...)):
     try:
-        # Send reset email directly (no need to check users)
         supabase.auth.reset_password_for_email(email)
-
         return {"message": "If this email exists, a reset link has been sent"}
-
     except Exception as e:
-        print("ERROR:", str(e))  # so you can see the real issue
+        print("ERROR:", str(e))
         raise HTTPException(
             status_code=500,
             detail="Something went wrong. Please try again."
@@ -258,11 +287,6 @@ async def get_departments():
 
 @app.get("/assignments")
 async def get_assignments(user=Depends(get_current_user)):
-    """
-    BUG FIX: Now filters by lecturer_id = current user's ID.
-    Previously fetched ALL assignments from ALL lecturers which caused
-    the wrong dashboard showing for different users.
-    """
     result = supabase.table("assignments")\
         .select("*")\
         .eq("lecturer_id", str(user.id))\
@@ -270,7 +294,6 @@ async def get_assignments(user=Depends(get_current_user)):
         .execute()
     assignments = result.data
 
-    # Add submission count for each assignment
     for a in assignments:
         count_result = supabase.table("submissions")\
             .select("id", count="exact")\
@@ -311,7 +334,6 @@ async def close_assignment(
     user=Depends(get_current_user)
 ):
     """Only the lecturer who owns this assignment can close it."""
-    # Verify ownership
     existing = supabase.table("assignments")\
         .select("lecturer_id")\
         .eq("id", assignment_id)\
@@ -401,49 +423,34 @@ async def submit_assignment(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ]
     if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail="Only PDF, DOC, and DOCX files are allowed")
+        raise HTTPException(status_code=400, detail="Only PDF, DOC, and DOCX files are accepted")
 
-    # 6. Rename file
-    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "pdf"
-    safe = lambda s: re.sub(r'[^a-zA-Z0-9]', '_', s)
-    new_filename = f"{safe(a['course_name'])}_{safe(a['title'])}_{safe(matric_number.upper())}_{safe(full_name)}.{ext}"
+    # 6. Upload file to Supabase Storage
+    content = await file.read()
+    safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename or "file")
+    file_path = f"{assignment_id}/{matric_number.upper()}_{safe_name}"
 
-    # 7. Build storage path
-    if a["submission_type"] == "group" and group_number:
-        folder = f"{assignment_id}/Group_{group_number}"
-    else:
-        folder = f"{assignment_id}/Individual"
-    storage_path = f"{folder}/{new_filename}"
+    supabase.storage.from_("submissions").upload(
+        file_path,
+        content,
+        {"content-type": file.content_type, "upsert": "true"}
+    )
 
-    # 8. Upload to Supabase Storage
-    file_bytes = await file.read()
-    try:
-        supabase.storage.from_("submissions").upload(
-            path=storage_path,
-            file=file_bytes,
-            file_options={"content-type": file.content_type, "upsert": "false"}
-        )
-    except Exception:
-        raise HTTPException(status_code=500, detail="File upload failed. Please try again.")
+    file_url = supabase.storage.from_("submissions").get_public_url(file_path)
 
-    file_url = supabase.storage.from_("submissions").get_public_url(storage_path)
-
-    # 9. Save to database
-    submission_data = {
+    # 7. Save submission record
+    result = supabase.table("submissions").insert({
         "assignment_id": assignment_id,
         "full_name": full_name,
         "matric_number": matric_number.upper(),
         "department": department,
         "group_number": group_number,
         "file_url": file_url,
-        "storage_path": storage_path,
-        "original_filename": file.filename,
-        "renamed_filename": new_filename,
-        "is_late": False,
-        "submitted_at": now.isoformat(),
-    }
-    result = supabase.table("submissions").insert(submission_data).execute()
-    return {"message": "Submission successful", "submission": result.data[0]}
+        "is_late": is_late,
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+    }).execute()
+
+    return result.data[0]
 
 
 @app.get("/submissions/{assignment_id}")
@@ -458,64 +465,8 @@ async def get_submissions(
         query = query.eq("department", department)
     if group_number:
         query = query.eq("group_number", group_number)
-    result = query.order("submitted_at", desc=False).execute()
-    subs = result.data
-
-    for s in subs:
-        s["file_url"] = f"/files/{s['id']}"
-
-    return subs
-
-
-@app.get("/files/{submission_id}")
-async def proxy_file(
-    submission_id: str,
-    token: Optional[str] = None,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))
-):
-    """Streams file from Supabase through backend. Supabase URLs never appear in browser."""
-    auth_token = token
-    if not auth_token and credentials:
-        auth_token = credentials.credentials
-    if not auth_token:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    try:
-        user = supabase.auth.get_user(auth_token)
-        if not user or not user.user:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    result = supabase.table("submissions")\
-        .select("storage_path, renamed_filename, original_filename")\
-        .eq("id", submission_id)\
-        .single().execute()
-
-    if not result.data:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    storage_path = result.data["storage_path"]
-    filename = result.data.get("renamed_filename") or result.data.get("original_filename") or "file"
-    real_url = supabase.storage.from_("submissions").get_public_url(storage_path)
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.get(real_url)
-        if resp.status_code != 200:
-            raise HTTPException(status_code=404, detail="File not found in storage")
-
-    ext = filename.split(".")[-1].lower() if "." in filename else "pdf"
-    content_types = {
-        "pdf": "application/pdf",
-        "doc": "application/msword",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    }
-    content_type = content_types.get(ext, "application/octet-stream")
-
-    return StreamingResponse(
-        io.BytesIO(resp.content),
-        media_type=content_type,
-        headers={"Content-Disposition": f'inline; filename="{filename}"'}
-    )
+    result = query.order("submitted_at", desc=True).execute()
+    return result.data
 
 
 @app.patch("/submissions/{submission_id}/score")
@@ -528,52 +479,10 @@ async def update_score(
         .update({"score": score})\
         .eq("id", submission_id)\
         .execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Submission not found")
     return result.data[0]
 
-
-# ─── Class List ───────────────────────────────────────────────────────────────
-
-@app.post("/assignments/{assignment_id}/classlist")
-async def upload_class_list(
-    assignment_id: str,
-    file: UploadFile = File(...),
-    user=Depends(get_current_user)
-):
-    """
-    Upload CSV with columns: full_name, matric_number, department
-    Returns: { total, submitted, missing: [{full_name, matric_number, department}] }
-    """
-    import csv
-    content = await file.read()
-    text = content.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-
-    class_list = []
-    for row in reader:
-        matric = (row.get("matric_number") or row.get("Matric Number") or "").strip().upper()
-        name = (row.get("full_name") or row.get("Full Name") or "").strip()
-        dept = (row.get("department") or row.get("Department") or "").strip()
-        if matric:
-            class_list.append({"matric_number": matric, "full_name": name, "department": dept})
-
-    subs = supabase.table("submissions")\
-        .select("matric_number")\
-        .eq("assignment_id", assignment_id)\
-        .execute().data
-    submitted_matrics = {s["matric_number"] for s in subs}
-
-    missing = [s for s in class_list if s["matric_number"] not in submitted_matrics]
-    submitted_count = sum(1 for s in class_list if s["matric_number"] in submitted_matrics)
-
-    return {
-        "total": len(class_list),
-        "submitted": submitted_count,
-        "missing_count": len(missing),
-        "missing": missing,
-    }
-
-
-# ─── ZIP Download ─────────────────────────────────────────────────────────────
 
 @app.get("/download/{assignment_id}/zip")
 async def download_zip(
@@ -582,53 +491,292 @@ async def download_zip(
     filter_value: Optional[str] = None,
     user=Depends(get_current_user)
 ):
+    """
+    Download submissions as ZIP with proper folder structure:
+
+    mode=all      → fetches ALL submissions
+                    ZIP: By_Department / {Dept} / {Group} / {course}_{title}_{matric}_{name}.pdf
+
+    mode=department (filter_value=dept name) → fetches only that department
+                    ZIP: By_Group / {Group} / {course}_{title}_{matric}_{name}.pdf
+
+    mode=group (filter_value=group number) → fetches only that group
+                    ZIP: By_Department / {Dept} / {course}_{title}_{matric}_{name}.pdf
+    """
     query = supabase.table("submissions").select("*").eq("assignment_id", assignment_id)
-    if mode == "group" and filter_value:
-        query = query.eq("group_number", int(filter_value))
-    elif mode == "department" and filter_value:
+    if mode == "department" and filter_value:
         query = query.eq("department", filter_value)
+    elif mode == "group" and filter_value:
+        try:
+            query = query.eq("group_number", int(filter_value))
+        except ValueError:
+            pass
     subs = query.execute().data
 
     if not subs:
         raise HTTPException(status_code=404, detail="No submissions found")
 
+    # Get assignment info for file naming
+    assign_info = supabase.table("assignments").select("course_name, title")        .eq("id", assignment_id).single().execute()
+    a_data = assign_info.data or {}
+    course = re.sub(r"[^a-zA-Z0-9]", "_", a_data.get("course_name", "course"))
+    title_safe = re.sub(r"[^a-zA-Z0-9]", "_", a_data.get("title", "assignment"))
+
     zip_buf = io.BytesIO()
-    async with httpx.AsyncClient(timeout=30) as client:
-        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        async with httpx.AsyncClient() as client:
             for sub in subs:
                 try:
-                    resp = await client.get(sub["file_url"])
+                    resp = await client.get(sub["file_url"], timeout=30)
                     if resp.status_code != 200:
                         continue
-                    file_bytes = resp.content
-                    filename = sub.get("renamed_filename") or sub.get("original_filename") or "file"
 
-                    if sub.get("group_number"):
-                        group_path = f"By_Group/Group_{sub['group_number']}/{filename}"
+                    ext = sub["file_url"].split(".")[-1].split("?")[0].lower()
+                    matric = re.sub(r"[^a-zA-Z0-9]", "_", sub.get("matric_number", "unknown"))
+                    name = re.sub(r"[^a-zA-Z0-9]", "_", sub.get("full_name", "unknown"))
+                    dept = re.sub(r"[^a-zA-Z0-9]", "_", sub.get("department", "Unknown_Department"))
+                    grp = sub.get("group_number")
+                    group_folder = f"Group_{grp}" if grp else "Individual"
+
+                    # File is named: CourseName_AssignmentTitle_MatricNumber_FullName.ext
+                    filename = f"{course}_{title_safe}_{matric}_{name}.{ext}"
+
+                    if mode == "all":
+                        # ALL: top level = Groups, inside each group = all files from any dept
+                        zip_path = f"{group_folder}/{filename}"
+
+                    elif mode == "department":
+                        # One dept selected: just flat files, no subfolders
+                        zip_path = filename
+
+                    elif mode == "group":
+                        # One group selected: just flat files, no subfolders
+                        zip_path = filename
+
                     else:
-                        group_path = f"By_Group/Individual/{filename}"
-                    zf.writestr(group_path, file_bytes)
+                        zip_path = filename
 
-                    safe_dept = re.sub(r'[^a-zA-Z0-9]', '_', sub.get("department", "Unknown"))
-                    dept_path = f"By_Department/{safe_dept}/{filename}"
-                    zf.writestr(dept_path, file_bytes)
+                    zf.writestr(zip_path, resp.content)
                 except Exception:
                     continue
 
     zip_buf.seek(0)
-    assignment = supabase.table("assignments")\
-        .select("title, course_name")\
-        .eq("id", assignment_id)\
-        .single().execute()
-    safe_title = re.sub(r'[^a-zA-Z0-9]', '_', assignment.data.get("title", "Assignment"))
+    zip_name = f"{course}_{title_safe}_submissions.zip"
     return StreamingResponse(
         zip_buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={safe_title}_Submissions.zip"}
+        headers={"Content-Disposition": f"attachment; filename={zip_name}"}
     )
 
 
-# ─── Excel Export ─────────────────────────────────────────────────────────────
+@app.post("/assignments/{assignment_id}/classlist")
+async def upload_classlist(
+    assignment_id: str,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user)
+):
+    """
+    Upload class list in any format: CSV, Excel (.xlsx), Word (.docx), or PDF.
+    Flexible column names accepted:
+      - Name: full_name, name, student_name, student name
+      - Matric: matric_number, matric, reg_no, reg number, registration number
+      - Department: department, dept, faculty
+    """
+    raw = await file.read()
+    filename = (file.filename or "").lower()
+
+    # ── Flexible column name mapping ─────────────────────────────────────────
+    NAME_ALIASES    = {"full_name", "name", "student_name", "student name", "fullname"}
+    MATRIC_ALIASES  = {"matric_number", "matric", "reg_no", "reg number", "registration number", "regno", "matric no", "matricnumber"}
+    DEPT_ALIASES    = {"department", "dept", "faculty", "department name"}
+
+    def normalize_header(headers):
+        """Map whatever headers the lecturer used to our standard keys."""
+        mapping = {}
+        for i, h in enumerate(headers):
+            hl = h.strip().lower()
+            if hl in NAME_ALIASES:
+                mapping["full_name"] = i
+            elif hl in MATRIC_ALIASES:
+                mapping["matric_number"] = i
+            elif hl in DEPT_ALIASES:
+                mapping["department"] = i
+        return mapping
+
+    def validate_mapping(mapping):
+        missing_cols = [k for k in ["full_name", "matric_number", "department"] if k not in mapping]
+        if missing_cols:
+            readable = {"full_name": "name/full_name", "matric_number": "matric/matric_number/reg_no", "department": "department/dept/faculty"}
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not find these columns: {', '.join(readable[c] for c in missing_cols)}. "
+                       f"Please make sure your file has columns for name, matric number, and department."
+            )
+
+    students = []
+
+    try:
+        if filename.endswith(".csv"):
+            lines = raw.decode("utf-8-sig").strip().splitlines()
+            if not lines:
+                raise HTTPException(status_code=400, detail="File is empty")
+            headers = [h.strip() for h in lines[0].split(",")]
+            mapping = normalize_header(headers)
+            validate_mapping(mapping)
+            for line in lines[1:]:
+                if not line.strip():
+                    continue
+                parts = line.split(",")
+                entry = {
+                    "full_name": parts[mapping["full_name"]].strip() if mapping["full_name"] < len(parts) else "",
+                    "matric_number": parts[mapping["matric_number"]].strip() if mapping["matric_number"] < len(parts) else "",
+                    "department": parts[mapping["department"]].strip() if mapping["department"] < len(parts) else "",
+                }
+                if entry["matric_number"]:
+                    students.append(entry)
+
+        elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                raise HTTPException(status_code=400, detail="Excel file is empty")
+            headers = [str(c).strip() if c else "" for c in rows[0]]
+            mapping = normalize_header(headers)
+            validate_mapping(mapping)
+            for row in rows[1:]:
+                vals = [str(c).strip() if c is not None else "" for c in row]
+                if not any(vals):
+                    continue
+                entry = {
+                    "full_name": vals[mapping["full_name"]] if mapping["full_name"] < len(vals) else "",
+                    "matric_number": vals[mapping["matric_number"]] if mapping["matric_number"] < len(vals) else "",
+                    "department": vals[mapping["department"]] if mapping["department"] < len(vals) else "",
+                }
+                if entry["matric_number"]:
+                    students.append(entry)
+
+        elif filename.endswith(".docx"):
+            doc = DocxDocument(io.BytesIO(raw))
+            if not doc.tables:
+                raise HTTPException(status_code=400, detail="Word document must contain a table with student data")
+            table = doc.tables[0]
+            headers = [cell.text.strip() for cell in table.rows[0].cells]
+            mapping = normalize_header(headers)
+            validate_mapping(mapping)
+            for row in table.rows[1:]:
+                vals = [cell.text.strip() for cell in row.cells]
+                entry = {
+                    "full_name": vals[mapping["full_name"]] if mapping["full_name"] < len(vals) else "",
+                    "matric_number": vals[mapping["matric_number"]] if mapping["matric_number"] < len(vals) else "",
+                    "department": vals[mapping["department"]] if mapping["department"] < len(vals) else "",
+                }
+                if entry["matric_number"]:
+                    students.append(entry)
+
+        elif filename.endswith(".pdf"):
+            rows_found = []
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                for page in pdf.pages:
+                    for table in (page.extract_tables() or []):
+                        for row in table:
+                            rows_found.append([str(c).strip() if c else "" for c in row])
+            if not rows_found:
+                raise HTTPException(status_code=400, detail="Could not find a table in the PDF.")
+            headers = rows_found[0]
+            mapping = normalize_header(headers)
+            validate_mapping(mapping)
+            for row in rows_found[1:]:
+                entry = {
+                    "full_name": row[mapping["full_name"]] if mapping["full_name"] < len(row) else "",
+                    "matric_number": row[mapping["matric_number"]] if mapping["matric_number"] < len(row) else "",
+                    "department": row[mapping["department"]] if mapping["department"] < len(row) else "",
+                }
+                if entry["matric_number"]:
+                    students.append(entry)
+
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file. Please upload CSV, Excel (.xlsx), Word (.docx), or PDF.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read file: {str(e)}")
+
+    if not students:
+        raise HTTPException(status_code=400, detail="No student records found in the file")
+
+    subs = supabase.table("submissions").select("matric_number")        .eq("assignment_id", assignment_id).execute().data
+    submitted_matrics = {s["matric_number"].upper() for s in subs}
+
+    missing = [s for s in students if s.get("matric_number", "").upper() not in submitted_matrics]
+
+    return {
+        "total": len(students),
+        "submitted": len(students) - len(missing),
+        "missing": missing
+    }
+
+
+@app.get("/files/{submission_id}")
+async def file_proxy(
+    submission_id: str,
+    token: str = None,
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False))
+):
+    """
+    Proxy file view — called by frontend as /files/{submission_id}?token=xxx
+    Hides raw Supabase storage URL completely.
+    Accepts token via query param (for window.open) or Authorization header.
+    """
+    # Accept token from query param or Authorization header
+    raw_token = token or (credentials.credentials if credentials else None)
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Validate token (custom JWT or Supabase JWT)
+    try:
+        payload = jwt.decode(raw_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if not payload.get("sub"):
+            raise ValueError("no sub")
+    except Exception:
+        try:
+            user = supabase.auth.get_user(raw_token)
+            if not user or not user.user:
+                raise HTTPException(status_code=401, detail="Invalid token")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+    sub = supabase.table("submissions").select("file_url, matric_number, full_name")\
+        .eq("id", submission_id).single().execute()
+    if not sub.data:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    file_url = sub.data["file_url"]
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(file_url, timeout=30)
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=404, detail="File not found in storage")
+
+    ext = file_url.split(".")[-1].split("?")[0].lower()
+    content_type_map = {
+        "pdf": "application/pdf",
+        "doc": "application/msword",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    }
+    content_type = content_type_map.get(ext, "application/octet-stream")
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", f"{sub.data['matric_number']}_{sub.data['full_name']}.{ext}")
+
+    return StreamingResponse(
+        io.BytesIO(resp.content),
+        media_type=content_type,
+        headers={"Content-Disposition": f"inline; filename={safe_name}"}
+    )
+
 
 @app.get("/export/{assignment_id}/excel")
 async def export_excel(
@@ -695,7 +843,15 @@ async def export_excel(
                 cell.fill = fill
                 cell.border = bdr
                 if col == 9:
-                    cell.font = Font(color="0563C1", underline="single")
+                    matric = row.get("matric_number", "")
+                    file_url = row.get("file_url", "")
+                    if file_url:
+                        # Write actual clickable hyperlink into the cell
+                        cell.value = f"View File - {matric}"
+                        cell.hyperlink = file_url
+                        cell.font = Font(color="0563C1", underline="single")
+                    else:
+                        cell.value = "No file"
 
         widths = [5, 26, 18, 30, 12, 20, 7, 8, 55]
         for i, w in enumerate(widths, 1):
@@ -743,15 +899,9 @@ async def admin_login(
     email: str = Form(...),
     password: str = Form(...),
 ):
-    """
-    Super admin login. Credentials set in Render environment variables:
-    ADMIN_EMAIL and ADMIN_PASSWORD.
-    Returns a custom signed token (not a Supabase token).
-    """
     if email != ADMIN_EMAIL or password != ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid admin credentials")
 
-    # Create a simple signed token: "admin:<timestamp>:<signature>"
     timestamp = int(datetime.now(timezone.utc).timestamp())
     signature = hashlib.sha256(f"admin:{timestamp}:{ADMIN_SECRET}".encode()).hexdigest()[:32]
     token = f"admin:{timestamp}:{signature}"
@@ -761,27 +911,36 @@ async def admin_login(
 
 @app.get("/admin/lecturers")
 async def admin_get_lecturers(is_admin=Depends(verify_admin_token)):
-    """
-    Returns all registered lecturers with their assignment and submission counts.
-    Only accessible with a valid admin token.
-    """
     try:
-        # Get all users from Supabase Auth (service key has access)
-        users_response = supabase.auth.admin.list_users()
+        # list_users with per_page to ensure we get all users
+        # Supabase SDK v2+ returns paginated object with .users attribute
+        try:
+            users_response = supabase.auth.admin.list_users(page=1, per_page=1000)
+        except TypeError:
+            users_response = supabase.auth.admin.list_users()
+
+        if hasattr(users_response, "users"):
+            users_list = users_response.users
+        elif isinstance(users_response, list):
+            users_list = users_response
+        else:
+            try:
+                users_list = list(users_response)
+            except Exception:
+                users_list = []
+
         lecturers = []
 
-        for u in users_response:
+        for u in users_list:
             if not u.email:
                 continue
 
-            # Get assignment count for this lecturer
             assignment_result = supabase.table("assignments")\
                 .select("id", count="exact")\
                 .eq("lecturer_id", str(u.id))\
                 .execute()
             assignment_count = assignment_result.count or 0
 
-            # Get submission count across all their assignments
             submission_count = 0
             if assignment_count > 0:
                 assignments = supabase.table("assignments")\
@@ -808,7 +967,6 @@ async def admin_get_lecturers(is_admin=Depends(verify_admin_token)):
                 "submission_count": submission_count,
             })
 
-        # Sort by newest first
         lecturers.sort(key=lambda x: x["created_at"], reverse=True)
         return lecturers
 
@@ -822,7 +980,6 @@ async def admin_impersonate(
     is_admin=Depends(verify_admin_token)
 ):
     try:
-        # 🔍 get user from Supabase (DB only)
         user_response = supabase.auth.admin.get_user_by_id(lecturer_id)
 
         if not user_response or not user_response.user:
@@ -830,9 +987,8 @@ async def admin_impersonate(
 
         user = user_response.user
 
-        # 🔥 create YOUR OWN token (NOT supabase)
         token = create_access_token({
-            "sub": user.id,
+            "sub": str(user.id),
             "email": user.email,
             "role": "lecturer",
             "impersonated": True
@@ -840,9 +996,244 @@ async def admin_impersonate(
 
         return {"token": token}
 
+    except HTTPException:
+        raise
     except Exception as e:
         print("ERROR:", str(e))
         raise HTTPException(status_code=500, detail="Impersonation failed")
+
+
+# ─── Collation ────────────────────────────────────────────────────────────────
+
+@app.post("/collation")
+async def collate_assignments(
+    assignment_ids: str = Form(...),   # comma-separated assignment IDs
+    format: str = Form("excel"),       # excel or csv
+    filter_department: Optional[str] = Form(None),  # filter by department
+    filter_level: Optional[str] = Form(None),       # filter by level e.g. "100", "200"
+    search_matric: Optional[str] = Form(None),      # search one student by matric
+    user=Depends(get_current_user)
+):
+    """
+    Collation report across multiple assignments.
+    Supports filtering by department, level, and searching by matric number.
+    Returns Excel or CSV showing each student's submission status per assignment.
+    """
+    ids = [a.strip() for a in assignment_ids.split(",") if a.strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="No assignment IDs provided")
+
+    # Fetch assignment details — only assignments belonging to this lecturer
+    assignments = []
+    for aid in ids:
+        res = supabase.table("assignments")            .select("id, title, course_name")            .eq("id", aid)            .eq("lecturer_id", str(user.id))            .single().execute()
+        if res.data:
+            assignments.append(res.data)
+
+    if not assignments:
+        raise HTTPException(status_code=404, detail="No valid assignments found")
+
+    # Fetch all submissions for selected assignments
+    # student_map: matric -> {full_name, matric_number, department, assignment_id: True/False}
+    student_map = {}
+
+    for a in assignments:
+        subs = supabase.table("submissions")            .select("matric_number, full_name, department")            .eq("assignment_id", a["id"]).execute().data
+
+        for s in subs:
+            m = s["matric_number"].upper()
+            if m not in student_map:
+                student_map[m] = {
+                    "full_name": s["full_name"],
+                    "matric_number": m,
+                    "department": s["department"],
+                }
+            student_map[m][a["id"]] = True
+
+    # ── Apply filters ─────────────────────────────────────────────────────────
+
+    # Filter by department (case-insensitive partial match)
+    if filter_department and filter_department.strip():
+        dept_lower = filter_department.strip().lower()
+        student_map = {
+            m: info for m, info in student_map.items()
+            if dept_lower in info.get("department", "").lower()
+        }
+
+    # Filter by level — match matric number pattern or department keyword
+    # Convention: level "100" means matric numbers starting with pattern or dept contains "100"
+    if filter_level and filter_level.strip():
+        lvl = filter_level.strip()
+        student_map = {
+            m: info for m, info in student_map.items()
+            if lvl in info.get("matric_number", "") or lvl in info.get("department", "")
+        }
+
+    # Filter by specific student matric number
+    if search_matric and search_matric.strip():
+        sm = search_matric.strip().upper()
+        student_map = {
+            m: info for m, info in student_map.items()
+            if sm in m
+        }
+
+    if not student_map:
+        raise HTTPException(
+            status_code=404,
+            detail="No students found matching your filters for the selected assignments"
+        )
+
+    # ── Build report rows ─────────────────────────────────────────────────────
+    rows = []
+    for matric, info in student_map.items():
+        row = {
+            "Full Name": info["full_name"],
+            "Matric Number": info["matric_number"],
+            "Department": info["department"],
+        }
+        total_done = 0
+        for a in assignments:
+            did_it = info.get(a["id"], False)
+            col_name = f"{a['course_name']} - {a['title']}"
+            row[col_name] = "YES" if did_it else "NO"
+            if did_it:
+                total_done += 1
+        row["Submitted"] = total_done
+        row["Missed"] = len(assignments) - total_done
+        row["Completion"] = f"{total_done}/{len(assignments)}"
+        rows.append(row)
+
+    # Sort: department first, then most missed, then name
+    rows.sort(key=lambda x: (x["Department"], -x["Missed"], x["Full Name"]))
+
+    headers = list(rows[0].keys())
+    assignment_cols = [f"{a['course_name']} - {a['title']}" for a in assignments]
+
+    # ── Excel output ──────────────────────────────────────────────────────────
+    if format == "excel":
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Collation Report"
+
+        # Title
+        title_col = openpyxl.utils.get_column_letter(len(headers))
+        ws.merge_cells(f"A1:{title_col}1")
+        ws["A1"] = "Assignment Collation Report"
+        ws["A1"].font = Font(bold=True, size=14)
+        ws["A1"].alignment = Alignment(horizontal="center")
+
+        # Subtitle showing filters applied
+        subtitle_parts = []
+        if filter_department:
+            subtitle_parts.append(f"Department: {filter_department}")
+        if filter_level:
+            subtitle_parts.append(f"Level: {filter_level}")
+        if search_matric:
+            subtitle_parts.append(f"Student: {search_matric}")
+        subtitle_parts.append(f"Assignments: {len(assignments)} selected")
+        subtitle_parts.append(f"Total Students: {len(rows)}")
+
+        ws.merge_cells(f"A2:{title_col}2")
+        ws["A2"] = "  |  ".join(subtitle_parts)
+        ws["A2"].font = Font(size=9, italic=True)
+
+        # Assignment list row
+        ws.merge_cells(f"A3:{title_col}3")
+        ws["A3"] = "  |  ".join([f"{a['course_name']}: {a['title']}" for a in assignments])
+        ws["A3"].font = Font(size=8, italic=True, color="555555")
+
+        # Headers row (row 5)
+        hfill = PatternFill("solid", fgColor="1A3A5C")
+        hfont = Font(bold=True, color="FFFFFF")
+        thin = Side(style="thin", color="DDDDDD")
+        bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=5, column=col, value=h)
+            cell.fill = hfill
+            cell.font = hfont
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+            cell.border = bdr
+
+        # Data rows — group by department with dept header rows
+        green_fill = PatternFill("solid", fgColor="C6EFCE")
+        red_fill   = PatternFill("solid", fgColor="FFC7CE")
+        alt_fill   = PatternFill("solid", fgColor="EBF2FA")
+        dept_fill  = PatternFill("solid", fgColor="2D5F4E")
+
+        current_dept = None
+        data_row = 6
+
+        for i, row in enumerate(rows):
+            # Insert department header when dept changes
+            if row["Department"] != current_dept:
+                current_dept = row["Department"]
+                ws.merge_cells(f"A{data_row}:{title_col}{data_row}")
+                dept_cell = ws.cell(row=data_row, column=1, value=f"  {current_dept.upper()}")
+                dept_cell.fill = dept_fill
+                dept_cell.font = Font(bold=True, color="FFFFFF", size=10)
+                dept_cell.alignment = Alignment(vertical="center")
+                ws.row_dimensions[data_row].height = 20
+                data_row += 1
+
+            fill = alt_fill if i % 2 == 0 else PatternFill()
+            for col, h in enumerate(headers, 1):
+                val = row[h]
+                cell = ws.cell(row=data_row, column=col, value=val)
+                cell.border = bdr
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                if h in assignment_cols:
+                    if val == "YES":
+                        cell.fill = green_fill
+                        cell.font = Font(color="276221", bold=True)
+                    else:
+                        cell.fill = red_fill
+                        cell.font = Font(color="9C0006", bold=True)
+                elif h == "Completion":
+                    cell.font = Font(bold=True)
+                    cell.fill = fill
+                else:
+                    cell.fill = fill
+
+            data_row += 1
+
+        # Column widths
+        col_widths = {"Full Name": 25, "Matric Number": 16, "Department": 28,
+                      "Submitted": 10, "Missed": 8, "Completion": 12}
+        for col, h in enumerate(headers, 1):
+            width = col_widths.get(h, 20)
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = width
+
+        ws.freeze_panes = "A6"  # freeze header rows
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=collation_report.xlsx"}
+        )
+
+    # ── CSV output ────────────────────────────────────────────────────────────
+    elif format == "csv":
+        output = io.StringIO()
+        output.write(",".join(f'"{h}"' for h in headers) + "")
+        current_dept = None
+        for row in rows:
+            if row["Department"] != current_dept:
+                current_dept = row["Department"]
+                output.write(f'"--- {current_dept} ---"')
+            output.write(",".join([f'"{str(row[h])}"' for h in headers]) + "")
+        output.seek(0)
+        return StreamingResponse(
+            io.BytesIO(output.getvalue().encode("utf-8-sig")),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=collation_report.csv"}
+        )
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid format. Use excel or csv.")
 
 
 # ─── Health check ─────────────────────────────────────────────────────────────

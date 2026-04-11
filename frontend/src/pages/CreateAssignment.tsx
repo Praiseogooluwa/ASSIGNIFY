@@ -21,6 +21,13 @@ const CreateAssignment = () => {
     instructions: "",
   });
 
+  // Capitalize each word for course name and title, sentence case for instructions
+  const toTitleCase = (str: string) =>
+    str.replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const toSentenceCase = (str: string) =>
+    str.charAt(0).toUpperCase() + str.slice(1);
+
   const update = (field: string, value: string | number) => setForm((p) => ({ ...p, [field]: value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,8 +35,8 @@ const CreateAssignment = () => {
     setLoading(true);
     try {
       const formData = new FormData();
-      formData.append("course_name", form.course_name);
-      formData.append("title", form.title);
+      formData.append("course_name", toTitleCase(form.course_name.trim()));
+      formData.append("title", toTitleCase(form.title.trim()));
       formData.append("submission_type", form.submission_type);
       if (form.submission_type === "group") {
         formData.append("number_of_groups", String(form.number_of_groups));
@@ -37,7 +44,7 @@ const CreateAssignment = () => {
       const deadline = new Date(`${form.deadline_date}T${form.deadline_time}`).toISOString();
       formData.append("deadline", deadline);
       if (form.instructions.trim()) {
-        formData.append("instructions", form.instructions);
+        formData.append("instructions", toSentenceCase(form.instructions.trim()));
       }
       await api.post("/assignments", formData);
       toast.success("Assignment created! Share the submission link with your students.");

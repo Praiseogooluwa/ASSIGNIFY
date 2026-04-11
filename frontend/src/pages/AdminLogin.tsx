@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import api from "@/api/axios";
+import { adminApi } from "@/api/axios";
 import AssignifyLogo from "@/components/AssignifyLogo";
 
 const AdminLogin = () => {
@@ -14,20 +14,22 @@ const AdminLogin = () => {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
     try {
       const formData = new FormData();
       formData.append("email", email);
       formData.append("password", password);
-      const { data } = await api.post("/admin/login", formData);
+      const { data } = await adminApi.post("/admin/login", formData);
       // Store separately from lecturer token so they never mix
       localStorage.setItem("ap_admin_token", data.token);
       navigate("/admin/dashboard");
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Invalid admin credentials");
+      setError(err.response?.data?.detail || err.response?.data?.message || "Invalid admin credentials");
     } finally {
       setLoading(false);
     }
@@ -50,6 +52,12 @@ const AdminLogin = () => {
           </p>
         </div>
 
+        {error && (
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 text-sm text-center">
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Admin Email</Label>
@@ -58,7 +66,7 @@ const AdminLogin = () => {
               type="email"
               placeholder="admin@assignify.app"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => { setEmail(e.target.value); setError(""); }}
               required
               className="h-11 focus-visible:ring-primary"
             />
@@ -71,7 +79,7 @@ const AdminLogin = () => {
                 type={showPassword ? "text" : "password"}
                 placeholder="••••••••"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => { setPassword(e.target.value); setError(""); }}
                 required
                 className="h-11 pr-10 focus-visible:ring-primary"
               />

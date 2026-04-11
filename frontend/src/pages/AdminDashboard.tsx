@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import AssignifyLogo from "@/components/AssignifyLogo";
-import api from "@/api/axios";
+import { adminApi as api } from "@/api/axios";
 
 interface Lecturer {
   id: string;
@@ -31,52 +31,35 @@ const AdminDashboard = () => {
   const fetchLecturers = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem("ap_admin_token");
-      const { data } = await api.get("/admin/lecturers", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const { data } = await api.get("/admin/lecturers");
       setLecturers(data);
     } catch (err: any) {
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        toast.error("Session expired. Please log in again.");
-        localStorage.removeItem("ap_admin_token");
-        navigate("/admin/login");
-      } else {
-        toast.error("Failed to load lecturers");
-      }
+      toast.error("Failed to load lecturers");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => { fetchLecturers(); }, []);
-  
+
   const impersonateLecturer = async (lecturerId: string) => {
+    setImpersonating(lecturerId);
     try {
-      const adminToken = localStorage.getItem("ap_admin_token");
+      const res = await api.post(`/admin/impersonate/${lecturerId}`, {});
 
-      const res = await api.post(
-        `/admin/impersonate/${lecturerId}`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${adminToken}` },
-        }
-      );
-
-      // 🔥 SAVE TOKEN FIRST
+      // Save the impersonation token as the lecturer token
       localStorage.setItem("ap_token", res.data.token);
-
-      // optional UI flag
       localStorage.setItem("ap_impersonating", "true");
 
       toast.success("Entering lecturer portal...");
 
-      // 🚨 SAME TAB ONLY
-      window.location.href = "/dashboard";
+      // Navigate in same tab using React Router (no page reload needed)
+      navigate("/dashboard");
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast.error("Failed to access lecturer portal");
+      toast.error(error.response?.data?.detail || "Failed to access lecturer portal");
+      setImpersonating(null);
     }
   };
 
@@ -110,7 +93,6 @@ const AdminDashboard = () => {
           </div>
         </div>
 
-        {/* Fixed Sign Out button — proper styling, no white hover weirdness */}
         <button
           onClick={handleLogout}
           className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/20 text-white/80 text-sm font-medium hover:bg-white/10 hover:text-white transition-colors duration-150"
@@ -205,10 +187,13 @@ const AdminDashboard = () => {
                       {l.created_at ? format(new Date(l.created_at), "d MMM yyyy") : "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <Button size="sm" variant="outline"
+                      <Button
+                        size="sm"
+                        variant="outline"
                         className="gap-1 text-primary hover:text-primary hover:bg-primary/10"
                         disabled={impersonating === l.id}
-                        onClick={() => impersonateLecturer(l.id)}>
+                        onClick={() => impersonateLecturer(l.id)}
+                      >
                         <Eye className="h-3.5 w-3.5" />
                         {impersonating === l.id ? "Opening..." : "View Portal"}
                       </Button>

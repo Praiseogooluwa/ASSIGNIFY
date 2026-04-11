@@ -178,12 +178,10 @@ const AssignmentDetail = () => {
 
   // Open file via backend proxy — hides Supabase URL completely
   const openFile = (submission: Submission) => {
-    // file_url is now /files/:id from backend
-    // We need to open it via the backend URL with auth token
     const token = localStorage.getItem("ap_token");
-    const fileUrl = `${API_BASE}/files/${submission.id}`;
-    // Open in new tab with token in URL as query param for auth
-    window.open(`${fileUrl}?token=${token}`, "_blank");
+    // /files/{submission_id}?token=xxx — backend streams the file securely
+    const fileUrl = `${API_BASE}/files/${submission.id}?token=${token}`;
+    window.open(fileUrl, "_blank");
   };
 
   if (loading) return <SidebarLayout><LoadingSpinner /></SidebarLayout>;
@@ -439,11 +437,11 @@ const AssignmentDetail = () => {
             </DialogHeader>
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Upload a CSV file with columns: <code className="bg-muted px-1 rounded text-xs">full_name, matric_number, department</code>
+                Upload your class list as <strong>CSV, Excel (.xlsx), Word (.docx), or PDF</strong>. File must have columns: <code className="bg-muted px-1 rounded text-xs">full_name, matric_number, department</code>
               </p>
               <Input
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls,.docx,.pdf"
                 onChange={(e) => { const file = e.target.files?.[0]; if (file) handleClassListUpload(file); }}
               />
               {uploadingClassList && <LoadingSpinner className="p-4" />}
