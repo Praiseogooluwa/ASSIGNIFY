@@ -19,6 +19,7 @@ create table if not exists assignments (
   submission_type  text not null check (submission_type in ('individual', 'group')),
   deadline         timestamptz not null,
   number_of_groups int,
+  target_level     text,          -- optional: "100L", "200L", "300L", "400L", "500L"
   created_at       timestamptz default now()
 );
 

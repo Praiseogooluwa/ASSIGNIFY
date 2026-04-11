@@ -19,6 +19,7 @@ const CreateAssignment = () => {
     deadline_date: "",
     deadline_time: "",
     instructions: "",
+    target_level: "",
   });
 
   // Capitalize each word for course name and title, sentence case for instructions
@@ -46,6 +47,9 @@ const CreateAssignment = () => {
       if (form.instructions.trim()) {
         formData.append("instructions", toSentenceCase(form.instructions.trim()));
       }
+      if (form.target_level) {
+        formData.append("target_level", form.target_level);
+      }
       await api.post("/assignments", formData);
       toast.success("Assignment created! Share the submission link with your students.");
       navigate("/dashboard");
@@ -70,6 +74,29 @@ const CreateAssignment = () => {
           <div className="space-y-2">
             <Label htmlFor="title">Assignment Title</Label>
             <Input id="title" placeholder="e.g. Mid-Semester Assignment" value={form.title} onChange={(e) => update("title", e.target.value)} required className="focus-visible:ring-primary" />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Target Level <span className="text-muted-foreground font-normal">(optional — used for collation filtering)</span></Label>
+            <div className="flex flex-wrap gap-2">
+              {["", "100L", "200L", "300L", "400L", "500L"].map((lvl) => (
+                <button
+                  key={lvl || "none"}
+                  type="button"
+                  onClick={() => update("target_level", lvl)}
+                  className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors duration-150 ${
+                    form.target_level === lvl
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-card text-foreground border-border hover:border-primary/50"
+                  }`}
+                >
+                  {lvl || "Not specified"}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Tag this assignment so lecturers can filter collation reports by level (e.g. see only 100L students' completion).
+            </p>
           </div>
 
           <div className="space-y-2">

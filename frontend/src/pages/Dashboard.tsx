@@ -18,6 +18,7 @@ interface Assignment {
   submission_type: "individual" | "group";
   deadline: string;
   submission_count: number;
+  target_level?: string;
 }
 
 const Dashboard = () => {
@@ -30,6 +31,7 @@ const Dashboard = () => {
   const [collationDept, setCollationDept] = useState("");
   const [collationLevel, setCollationLevel] = useState("");
   const [collationSearch, setCollationSearch] = useState("");
+  const [collationClasslist, setCollationClasslist] = useState<File | null>(null);
 
   const fetchAssignments = async () => {
     try {
@@ -65,6 +67,7 @@ const Dashboard = () => {
       if (collationDept.trim()) formData.append("filter_department", collationDept.trim());
       if (collationLevel.trim()) formData.append("filter_level", collationLevel.trim());
       if (collationSearch.trim()) formData.append("search_matric", collationSearch.trim());
+      if (collationClasslist) formData.append("classlist_file", collationClasslist);
       const res = await api.post("/collation", formData, { responseType: "blob" });
       const ext = collationFormat === "csv" ? "csv" : "xlsx";
       downloadBlob(res.data, `collation_report.${ext}`);
@@ -111,7 +114,7 @@ const Dashboard = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h1 className="font-display text-3xl text-foreground">My Assignments</h1>
           <div className="flex items-center gap-2">
-            <Button variant="outline" className="gap-2" onClick={() => { setShowCollation(!showCollation); setSelectedIds([]); }}>
+            <Button variant="outline" className="gap-2" onClick={() => { setShowCollation(!showCollation); setSelectedIds([]); setCollationClasslist(null); }}>
               <BarChart2 className="h-4 w-4" />
               {showCollation ? "Cancel Collation" : "Collate Assignments"}
             </Button>
@@ -132,6 +135,11 @@ const Dashboard = () => {
               <p className="text-sm text-muted-foreground mt-1">
                 Tick the assignments below, then filter by department or level to generate a report.
                 Perfect for checking CA completion across your class.
+                <br />
+                <span className="text-xs">
+                  💡 Level filter works based on the <strong>target level</strong> you tag on each assignment at creation — not the student's matric number.
+                  Assignments without a level tag are always included.
+                </span>
               </p>
             </div>
 
@@ -151,7 +159,7 @@ const Dashboard = () => {
                 <label className="text-xs font-medium text-muted-foreground">Filter by Level</label>
                 <input
                   type="text"
-                  placeholder="e.g. 100, 200, 300, 400"
+                  placeholder="e.g. 100L, 200L, 300L"
                   value={collationLevel}
                   onChange={(e) => setCollationLevel(e.target.value)}
                   className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
@@ -167,6 +175,46 @@ const Dashboard = () => {
                   className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
+            </div>
+
+            {/* Class List Upload */}
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Upload Class Register <span className="text-muted-foreground font-normal">(optional but recommended)</span></p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Without this, only students who submitted at least once appear in the report.
+                    Upload your full class list to see <strong>every student</strong> — including those who submitted nothing (they show as all NO ❌).
+                  </p>
+                </div>
+                {collationClasslist && (
+                  <button
+                    onClick={() => setCollationClasslist(null)}
+                    className="text-xs text-destructive hover:underline shrink-0"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {collationClasslist ? (
+                <div className="flex items-center gap-2 text-sm text-primary">
+                  <span>✅</span>
+                  <span className="font-medium">{collationClasslist.name}</span>
+                  <span className="text-muted-foreground">({(collationClasslist.size / 1024).toFixed(1)} KB)</span>
+                </div>
+              ) : (
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.docx,.pdf"
+                    className="sr-only"
+                    onChange={(e) => setCollationClasslist(e.target.files?.[0] || null)}
+                  />
+                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-background text-xs font-medium text-foreground hover:border-primary/50 transition-colors">
+                    📂 Choose file (CSV, Excel, Word, PDF)
+                  </span>
+                </label>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-1">
@@ -264,6 +312,11 @@ const Dashboard = () => {
                       <Badge variant={a.submission_type === "group" ? "secondary" : "outline"}>
                         {a.submission_type === "group" ? "Group" : "Individual"}
                       </Badge>
+                      {a.target_level && (
+                        <Badge variant="outline" className="border-primary/40 text-primary font-semibold">
+                          {a.target_level}
+                        </Badge>
+                      )}
                       <Badge className={closed ? "bg-destructive text-destructive-foreground" : "bg-success text-success-foreground"}>
                         {closed ? "Closed" : "Open"}
                       </Badge>

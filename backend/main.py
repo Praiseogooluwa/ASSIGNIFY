@@ -312,6 +312,7 @@ async def create_assignment(
     deadline: str = Form(...),
     number_of_groups: Optional[int] = Form(None),
     instructions: Optional[str] = Form(None),
+    target_level: Optional[str] = Form(None),  # e.g. "100L", "200L", "300L", "400L"
     user=Depends(get_current_user)
 ):
     data = {
@@ -321,6 +322,7 @@ async def create_assignment(
         "deadline": deadline,
         "number_of_groups": number_of_groups,
         "instructions": instructions,
+        "target_level": target_level.strip() if target_level and target_level.strip() else None,
         "is_closed": False,
         "lecturer_id": str(user.id),
     }
@@ -569,29 +571,25 @@ async def download_zip(
     )
 
 
-@app.post("/assignments/{assignment_id}/classlist")
-async def upload_classlist(
-    assignment_id: str,
-    file: UploadFile = File(...),
-    user=Depends(get_current_user)
-):
-    """
-    Upload class list in any format: CSV, Excel (.xlsx), Word (.docx), or PDF.
-    Flexible column names accepted:
-      - Name: full_name, name, student_name, student name
-      - Matric: matric_number, matric, reg_no, reg number, registration number
-      - Department: department, dept, faculty
-    """
-    raw = await file.read()
-    filename = (file.filename or "").lower()
+# ─── Shared class list parser ─────────────────────────────────────────────────
+# Used by both /classlist (per-assignment) and /collation (full semester report)
+# Accepts CSV, Excel (.xlsx/.xls), Word (.docx), PDF
+# Flexible column names: name/full_name/student_name, matric/matric_number/reg_no, dept/department/faculty
 
-    # ── Flexible column name mapping ─────────────────────────────────────────
-    NAME_ALIASES    = {"full_name", "name", "student_name", "student name", "fullname"}
-    MATRIC_ALIASES  = {"matric_number", "matric", "reg_no", "reg number", "registration number", "regno", "matric no", "matricnumber"}
-    DEPT_ALIASES    = {"department", "dept", "faculty", "department name"}
+def parse_classlist_bytes(raw: bytes, filename: str) -> list[dict]:
+    """
+    Parse a class list file (CSV / Excel / Word / PDF) and return a list of:
+      [{ "full_name": str, "matric_number": str, "department": str }, ...]
+    Raises HTTPException with a clear message if anything goes wrong.
+    """
+    filename = filename.lower()
+
+    NAME_ALIASES   = {"full_name", "name", "student_name", "student name", "fullname"}
+    MATRIC_ALIASES = {"matric_number", "matric", "reg_no", "reg number", "registration number",
+                      "regno", "matric no", "matricnumber"}
+    DEPT_ALIASES   = {"department", "dept", "faculty", "department name"}
 
     def normalize_header(headers):
-        """Map whatever headers the lecturer used to our standard keys."""
         mapping = {}
         for i, h in enumerate(headers):
             hl = h.strip().lower()
@@ -606,7 +604,11 @@ async def upload_classlist(
     def validate_mapping(mapping):
         missing_cols = [k for k in ["full_name", "matric_number", "department"] if k not in mapping]
         if missing_cols:
-            readable = {"full_name": "name/full_name", "matric_number": "matric/matric_number/reg_no", "department": "department/dept/faculty"}
+            readable = {
+                "full_name": "name/full_name",
+                "matric_number": "matric/matric_number/reg_no",
+                "department": "department/dept/faculty"
+            }
             raise HTTPException(
                 status_code=400,
                 detail=f"Could not find these columns: {', '.join(readable[c] for c in missing_cols)}. "
@@ -636,7 +638,6 @@ async def upload_classlist(
                     students.append(entry)
 
         elif filename.endswith(".xlsx") or filename.endswith(".xls"):
-            import openpyxl
             wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
             ws = wb.active
             rows = list(ws.iter_rows(values_only=True))
@@ -697,7 +698,10 @@ async def upload_classlist(
                     students.append(entry)
 
         else:
-            raise HTTPException(status_code=400, detail="Unsupported file. Please upload CSV, Excel (.xlsx), Word (.docx), or PDF.")
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported file. Please upload CSV, Excel (.xlsx), Word (.docx), or PDF."
+            )
 
     except HTTPException:
         raise
@@ -707,7 +711,25 @@ async def upload_classlist(
     if not students:
         raise HTTPException(status_code=400, detail="No student records found in the file")
 
-    subs = supabase.table("submissions").select("matric_number")        .eq("assignment_id", assignment_id).execute().data
+    return students
+
+
+@app.post("/assignments/{assignment_id}/classlist")
+async def upload_classlist(
+    assignment_id: str,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user)
+):
+    """
+    Per-assignment class list check.
+    Upload the full class list → get back who submitted and who is missing for THIS assignment.
+    Accepts CSV, Excel, Word, PDF with flexible column names.
+    """
+    raw = await file.read()
+    students = parse_classlist_bytes(raw, file.filename or "")
+
+    subs = supabase.table("submissions").select("matric_number") \
+        .eq("assignment_id", assignment_id).execute().data
     submitted_matrics = {s["matric_number"].upper() for s in subs}
 
     missing = [s for s in students if s.get("matric_number", "").upper() not in submitted_matrics]
@@ -1010,35 +1032,77 @@ async def collate_assignments(
     assignment_ids: str = Form(...),   # comma-separated assignment IDs
     format: str = Form("excel"),       # excel or csv
     filter_department: Optional[str] = Form(None),  # filter by department
-    filter_level: Optional[str] = Form(None),       # filter by level e.g. "100", "200"
+    filter_level: Optional[str] = Form(None),       # filter by level e.g. "100L", "200L"
     search_matric: Optional[str] = Form(None),      # search one student by matric
+    classlist_file: Optional[UploadFile] = File(None),  # optional: full class register
     user=Depends(get_current_user)
 ):
     """
     Collation report across multiple assignments.
-    Supports filtering by department, level, and searching by matric number.
-    Returns Excel or CSV showing each student's submission status per assignment.
+    - filter_department: partial match on student's submitted department
+    - filter_level: matches against assignment's target_level tag (set at creation)
+      e.g. filtering "100L" will only include assignments tagged as 100L
+    - search_matric: search one student across all selected assignments
+    - classlist_file: optional class register (CSV/Excel/Word/PDF).
+      When provided, EVERY student in the register appears in the report —
+      even those who submitted nothing (they get all NO ❌).
+      Without it, only students who submitted at least once appear.
     """
     ids = [a.strip() for a in assignment_ids.split(",") if a.strip()]
     if not ids:
         raise HTTPException(status_code=400, detail="No assignment IDs provided")
 
     # Fetch assignment details — only assignments belonging to this lecturer
+    # Now includes target_level so we can filter properly
     assignments = []
     for aid in ids:
-        res = supabase.table("assignments")            .select("id, title, course_name")            .eq("id", aid)            .eq("lecturer_id", str(user.id))            .single().execute()
+        res = supabase.table("assignments") \
+            .select("id, title, course_name, target_level") \
+            .eq("id", aid) \
+            .eq("lecturer_id", str(user.id)) \
+            .single().execute()
         if res.data:
             assignments.append(res.data)
 
     if not assignments:
         raise HTTPException(status_code=404, detail="No valid assignments found")
 
+    # ── Filter assignments by level BEFORE fetching submissions ───────────────
+    # This is the correct approach: filter which assignments count toward the report
+    # rather than guessing level from matric numbers (unreliable)
+    if filter_level and filter_level.strip():
+        lvl = filter_level.strip().upper()
+        # Normalize: "100" → "100L", "100l" → "100L"
+        if lvl.isdigit():
+            lvl = lvl + "L"
+        lvl_num = lvl.rstrip("L")  # "100" from "100L"
+
+        filtered_assignments = []
+        for a in assignments:
+            al = (a.get("target_level") or "").strip().upper()
+            # Match if assignment level equals filter OR if no level tagged (include all untagged)
+            if not al:
+                # Untagged assignments — include them (don't exclude just because lecturer forgot to tag)
+                filtered_assignments.append(a)
+            elif al == lvl or al == lvl_num or lvl_num in al:
+                filtered_assignments.append(a)
+
+        if not filtered_assignments:
+            raise HTTPException(
+                status_code=404,
+                detail=f"None of the selected assignments are tagged for Level {filter_level}. "
+                       f"Tag assignments with their target level when creating them, or remove the level filter."
+            )
+        assignments = filtered_assignments
+
     # Fetch all submissions for selected assignments
     # student_map: matric -> {full_name, matric_number, department, assignment_id: True/False}
     student_map = {}
 
     for a in assignments:
-        subs = supabase.table("submissions")            .select("matric_number, full_name, department")            .eq("assignment_id", a["id"]).execute().data
+        subs = supabase.table("submissions") \
+            .select("matric_number, full_name, department") \
+            .eq("assignment_id", a["id"]).execute().data
 
         for s in subs:
             m = s["matric_number"].upper()
@@ -1050,9 +1114,32 @@ async def collate_assignments(
                 }
             student_map[m][a["id"]] = True
 
-    # ── Apply filters ─────────────────────────────────────────────────────────
+    # ── Merge class list if uploaded ──────────────────────────────────────────
+    # This is the key upgrade: every student in the register appears in the report,
+    # even if they submitted NOTHING. Without a class list, zero-submission students
+    # are invisible. With it, they show as all NO ❌ — the lecturer sees who did nothing.
+    classlist_students = []
+    if classlist_file and classlist_file.filename:
+        raw_cl = await classlist_file.read()
+        classlist_students = parse_classlist_bytes(raw_cl, classlist_file.filename)
+        for s in classlist_students:
+            m = s["matric_number"].upper()
+            if m not in student_map:
+                # Student has zero submissions — add them with empty assignment slots
+                student_map[m] = {
+                    "full_name": s["full_name"],
+                    "matric_number": m,
+                    "department": s["department"],
+                    "_from_classlist": True,  # flag so we can style them differently if needed
+                }
+            # If student IS in student_map (submitted something), update name/dept
+            # from class list in case they typed their name slightly differently
+            else:
+                # Trust the class list for name and department (lecturer's official record)
+                student_map[m]["full_name"] = s["full_name"]
+                student_map[m]["department"] = s["department"]
 
-    # Filter by department (case-insensitive partial match)
+    # ── Filter by department (case-insensitive partial match on submitted dept) ─
     if filter_department and filter_department.strip():
         dept_lower = filter_department.strip().lower()
         student_map = {
@@ -1060,16 +1147,7 @@ async def collate_assignments(
             if dept_lower in info.get("department", "").lower()
         }
 
-    # Filter by level — match matric number pattern or department keyword
-    # Convention: level "100" means matric numbers starting with pattern or dept contains "100"
-    if filter_level and filter_level.strip():
-        lvl = filter_level.strip()
-        student_map = {
-            m: info for m, info in student_map.items()
-            if lvl in info.get("matric_number", "") or lvl in info.get("department", "")
-        }
-
-    # Filter by specific student matric number
+    # ── Filter by specific student matric number ──────────────────────────────
     if search_matric and search_matric.strip():
         sm = search_matric.strip().upper()
         student_map = {
@@ -1094,8 +1172,9 @@ async def collate_assignments(
         total_done = 0
         for a in assignments:
             did_it = info.get(a["id"], False)
-            col_name = f"{a['course_name']} - {a['title']}"
-            row[col_name] = "YES" if did_it else "NO"
+            level_tag = f" [{a['target_level']}]" if a.get("target_level") else ""
+            col_name = f"{a['course_name']} - {a['title']}{level_tag}"
+            row[col_name] = "YES ✅" if did_it else "NO ❌"
             if did_it:
                 total_done += 1
         row["Submitted"] = total_done
@@ -1107,7 +1186,10 @@ async def collate_assignments(
     rows.sort(key=lambda x: (x["Department"], -x["Missed"], x["Full Name"]))
 
     headers = list(rows[0].keys())
-    assignment_cols = [f"{a['course_name']} - {a['title']}" for a in assignments]
+    assignment_cols = [
+        f"{a['course_name']} - {a['title']}" + (f" [{a['target_level']}]" if a.get("target_level") else "")
+        for a in assignments
+    ]
 
     # ── Excel output ──────────────────────────────────────────────────────────
     if format == "excel":
@@ -1132,6 +1214,8 @@ async def collate_assignments(
             subtitle_parts.append(f"Student: {search_matric}")
         subtitle_parts.append(f"Assignments: {len(assignments)} selected")
         subtitle_parts.append(f"Total Students: {len(rows)}")
+        if classlist_students:
+            subtitle_parts.append(f"Class Register: {len(classlist_students)} students (includes non-submitters)")
 
         ws.merge_cells(f"A2:{title_col}2")
         ws["A2"] = "  |  ".join(subtitle_parts)
@@ -1183,7 +1267,7 @@ async def collate_assignments(
                 cell.border = bdr
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 if h in assignment_cols:
-                    if val == "YES":
+                    if str(val).startswith("YES"):
                         cell.fill = green_fill
                         cell.font = Font(color="276221", bold=True)
                     else:
