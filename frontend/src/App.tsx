@@ -7,6 +7,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import CreateAssignment from "./pages/CreateAssignment";
 import AssignmentDetail from "./pages/AssignmentDetail";
@@ -14,6 +15,7 @@ import StudentSubmission from "./pages/StudentSubmission";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
+import Landing from "./pages/Index";
 
 
 const queryClient = new QueryClient();
@@ -47,12 +49,13 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           {/* Root redirect */}
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<Landing />} />
 
           {/* Lecturer Auth — locked out if already logged in */}
           <Route path="/login" element={<GuestOnlyRoute><Login /></GuestOnlyRoute>} />
           <Route path="/register" element={<GuestOnlyRoute><Register /></GuestOnlyRoute>} />
           <Route path="/forgot-password" element={<GuestOnlyRoute><ForgotPassword /></GuestOnlyRoute>} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Lecturer Protected Routes */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

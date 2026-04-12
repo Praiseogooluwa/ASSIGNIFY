@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -14,26 +14,44 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import jwt
 import pdfplumber
 from docx import Document as DocxDocument
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 
+# ─── Rate limiter ─────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="Assignify API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ─── CORS — locked to your domain ─────────────────────────────────────────────
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "https://assignify.com.ng,https://www.assignify.com.ng,http://localhost:8080,http://localhost:5173"
+).split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with your frontend URL in production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-SECRET_KEY = "iloveassignify_admin_secret_key_09029507107"  # use same one as your login
+# ─── Security — all secrets from environment variables ────────────────────────
+SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_hex(32))
 ALGORITHM = "HS256"
+
+# ─── File upload limit: 10MB ──────────────────────────────────────────────────
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
-# ─── ADMIN CREDENTIALS (set these in your Render environment variables) ────────
+# ─── ADMIN CREDENTIALS ────────────────────────────────────────────────────────
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@assignify.app")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme_set_in_render")
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "admin_super_secret_key_change_this")
@@ -141,7 +159,9 @@ def verify_admin_token(credentials: HTTPAuthorizationCredentials = Depends(secur
 # ─── Auth endpoints ───────────────────────────────────────────────────────────
 
 @app.post("/auth/register")
+@limiter.limit("5/minute")
 async def register(
+    request: Request,
     full_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
@@ -225,7 +245,9 @@ async def resend_code(email: str = Form(...)):
 
 
 @app.post("/auth/login")
+@limiter.limit("10/minute")
 async def login(
+    request: Request,
     email: str = Form(...),
     password: str = Form(...),
 ):
@@ -429,6 +451,11 @@ async def submit_assignment(
 
     # 6. Upload file to Supabase Storage
     content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size is 10MB. Your file is {round(len(content)/(1024*1024), 1)}MB."
+        )
     safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename or "file")
     file_path = f"{assignment_id}/{matric_number.upper()}_{safe_name}"
 
@@ -917,7 +944,9 @@ async def export_excel(
 # ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────
 
 @app.post("/admin/login")
+@limiter.limit("5/minute")
 async def admin_login(
+    request: Request,
     email: str = Form(...),
     password: str = Form(...),
 ):
