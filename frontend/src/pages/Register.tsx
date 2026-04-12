@@ -294,10 +294,10 @@ const Register = () => {
 
         <div className="w-full max-w-sm mx-auto border-t border-border pt-4 mt-4 space-y-1.5">
           <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-            <a href="mailto:praiseogooluwa118@gmail.com?subject=Assignify Support"
+            <a href="mailto:support@assignify.com.ng?subject=Assignify Support"
               className="flex items-center gap-1 hover:text-primary transition-colors">
               <Mail className="h-3 w-3" />
-              <span>praiseogooluwa118@gmail.com</span>
+              <span>support@assignify.com.ng</span>
             </a>
             <a href="tel:+2347048116542" className="flex items-center gap-1 hover:text-primary transition-colors">
               <Phone className="h-3 w-3" />
