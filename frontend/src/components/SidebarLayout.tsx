@@ -107,7 +107,7 @@ const SidebarLayout = ({ children }: { children: ReactNode }) => {
       <div className="px-3 py-4 border-t border-white/10 space-y-0.5">
         {/* Help & Support — opens email app */}
         <a
-          href="mailto:praiseogooluwa118@gmail.com?subject=Assignify Support"
+          href="mailto:support@assignify.com.ng?subject=Assignify Support"
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/50 hover:text-white hover:bg-white/[0.08] transition-all duration-150"
         >
           <HelpCircle className="h-4 w-4" />
