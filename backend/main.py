@@ -374,6 +374,84 @@ async def close_assignment(
     return result.data[0]
 
 
+@app.patch("/assignments/{assignment_id}/reopen")
+async def reopen_assignment(
+    assignment_id: str,
+    user=Depends(get_current_user)
+):
+    """Reopen a manually closed assignment — sets is_closed back to False."""
+    existing = supabase.table("assignments")\
+        .select("lecturer_id, deadline")\
+        .eq("id", assignment_id)\
+        .single().execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    if existing.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=403, detail="You don't have permission to reopen this assignment")
+
+    deadline = datetime.fromisoformat(existing.data["deadline"].replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) > deadline:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot reopen — deadline has already passed. Extend the deadline first, then reopen."
+        )
+
+    result = supabase.table("assignments")\
+        .update({"is_closed": False})\
+        .eq("id", assignment_id)\
+        .execute()
+    return result.data[0]
+
+
+@app.patch("/assignments/{assignment_id}/extend")
+async def extend_deadline(
+    assignment_id: str,
+    new_deadline: str = Form(...),   # ISO 8601 datetime string
+    user=Depends(get_current_user)
+):
+    """
+    Extend (or change) the deadline of an assignment.
+    - New deadline must be in the future
+    - If assignment was deadline-closed (not manually closed), extending reopens it automatically
+    - Only the owning lecturer can extend
+    """
+    existing = supabase.table("assignments")\
+        .select("lecturer_id, deadline, is_closed")\
+        .eq("id", assignment_id)\
+        .single().execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    if existing.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=403, detail="You don't have permission to modify this assignment")
+
+    # Parse and validate the new deadline
+    try:
+        new_dt = datetime.fromisoformat(new_deadline.replace("Z", "+00:00"))
+        if new_dt.tzinfo is None:
+            new_dt = new_dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid deadline format. Use ISO 8601 e.g. 2025-12-31T23:59:00")
+
+    if new_dt <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="New deadline must be in the future.")
+
+    old_deadline = datetime.fromisoformat(existing.data["deadline"].replace("Z", "+00:00"))
+    was_deadline_closed = datetime.now(timezone.utc) > old_deadline
+
+    update_data: dict = {"deadline": new_dt.isoformat()}
+
+    # If the assignment was closed ONLY because deadline passed (not manually closed),
+    # extending the deadline automatically reopens it for new submissions
+    if was_deadline_closed and not existing.data.get("is_closed"):
+        pass  # deadline-closed means is_closed=False but time passed — extending fixes this automatically
+
+    result = supabase.table("assignments")\
+        .update(update_data)\
+        .eq("id", assignment_id)\
+        .execute()
+    return result.data[0]
+
+
 @app.get("/assignments/{assignment_id}")
 async def get_assignment(assignment_id: str):
     """PUBLIC endpoint — students need this to load assignment details."""

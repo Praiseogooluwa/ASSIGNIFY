@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { format, isPast } from "date-fns";
 import {
-  Copy, Download, FileSpreadsheet, Upload, Search, ExternalLink, ChevronLeft, ChevronRight, XCircle, ChevronDown, ChevronUp,
+  Copy, Download, FileSpreadsheet, Upload, Search, ExternalLink, ChevronLeft, ChevronRight, XCircle, ChevronDown, ChevronUp, Clock, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,6 +71,11 @@ const AssignmentDetail = () => {
   const [showBrief, setShowBrief] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [extendDialogOpen, setExtendDialogOpen] = useState(false);
+  const [extendDate, setExtendDate] = useState("");
+  const [extendTime, setExtendTime] = useState("");
+  const [extending, setExtending] = useState(false);
+  const [reopening, setReopening] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -169,6 +174,42 @@ const AssignmentDetail = () => {
     }
   };
 
+  const handleExtendDeadline = async () => {
+    if (!extendDate || !extendTime) {
+      toast.error("Please pick a new date and time");
+      return;
+    }
+    setExtending(true);
+    try {
+      const newDeadline = new Date(`${extendDate}T${extendTime}`).toISOString();
+      const formData = new FormData();
+      formData.append("new_deadline", newDeadline);
+      const { data } = await api.patch(`/assignments/${id}/extend`, formData);
+      setAssignment((prev) => prev ? { ...prev, deadline: data.deadline } : prev);
+      toast.success("Deadline extended — assignment is now open for new submissions");
+      setExtendDialogOpen(false);
+      setExtendDate("");
+      setExtendTime("");
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Failed to extend deadline");
+    } finally {
+      setExtending(false);
+    }
+  };
+
+  const handleReopenAssignment = async () => {
+    setReopening(true);
+    try {
+      await api.patch(`/assignments/${id}/reopen`);
+      setAssignment((prev) => prev ? { ...prev, is_closed: false } : prev);
+      toast.success("Assignment reopened — students can now submit again");
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Failed to reopen assignment");
+    } finally {
+      setReopening(false);
+    }
+  };
+
   const downloadMissingCSV = () => {
     if (!classListResult?.missing) return;
     const csv = "Full Name,Matric Number,Department\n" + classListResult.missing.map((m) => `${m.full_name},${m.matric_number},${m.department}`).join("\n");
@@ -255,6 +296,30 @@ const AssignmentDetail = () => {
               onClick={() => setCloseDialogOpen(true)}
             >
               <XCircle className="h-4 w-4" /> Close Assignment
+            </Button>
+          )}
+
+          {/* Extend Deadline — available any time (open or closed) */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-primary border-primary/40 hover:bg-primary/10"
+            onClick={() => setExtendDialogOpen(true)}
+          >
+            <Clock className="h-4 w-4" /> Extend Deadline
+          </Button>
+
+          {/* Reopen — only if manually closed and deadline hasn't passed */}
+          {assignment.is_closed && !isPast(new Date(assignment.deadline)) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-success border-success/40 hover:bg-success/10"
+              onClick={handleReopenAssignment}
+              disabled={reopening}
+            >
+              <RefreshCw className={`h-4 w-4 ${reopening ? "animate-spin" : ""}`} />
+              {reopening ? "Reopening..." : "Reopen Assignment"}
             </Button>
           )}
 
@@ -413,7 +478,7 @@ const AssignmentDetail = () => {
             <AlertDialogHeader>
               <AlertDialogTitle>Close this assignment?</AlertDialogTitle>
               <AlertDialogDescription>
-                Students will no longer be able to submit once you close this assignment. This cannot be undone.
+                Students will no longer be able to submit once you close this assignment. You can reopen it later as long as the deadline hasn't passed.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -428,6 +493,57 @@ const AssignmentDetail = () => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Extend Deadline Dialog */}
+        <Dialog open={extendDialogOpen} onOpenChange={setExtendDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Extend Deadline</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Current deadline: <strong>{format(new Date(assignment.deadline), "EEE d MMM yyyy · h:mm a")}</strong>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Set a new deadline in the future. If the old deadline has already passed, this will reopen the assignment automatically.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="ext-date">New Date</Label>
+                  <Input
+                    id="ext-date"
+                    type="date"
+                    value={extendDate}
+                    onChange={(e) => setExtendDate(e.target.value)}
+                    className="focus-visible:ring-primary"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ext-time">New Time</Label>
+                  <Input
+                    id="ext-time"
+                    type="time"
+                    value={extendTime}
+                    onChange={(e) => setExtendTime(e.target.value)}
+                    className="focus-visible:ring-primary"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end pt-1">
+                <Button variant="outline" size="sm" onClick={() => setExtendDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleExtendDeadline}
+                  disabled={extending || !extendDate || !extendTime}
+                >
+                  {extending ? "Extending..." : "Extend Deadline"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Class List Modal */}
         <Dialog open={classListOpen} onOpenChange={setClassListOpen}>
