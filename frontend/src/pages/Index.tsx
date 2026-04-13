@@ -407,7 +407,7 @@ const Landing = () => {
           <AssignifyLogo size="sm" variant="light" showText={true} />
           <p className="text-xs text-white/25 text-center">
             Built by{" "}
-            <a href="https://github.com/Praiseogooluwa" target="_blank" rel="noopener noreferrer"
+            <a href="https://www.linkedin.com/in/praise-ogooluwa" target="_blank" rel="noopener noreferrer"
               className="text-[#1abb9b] hover:underline">
               Isaiah Ogooluwa Bakare
             </a>{" "}
