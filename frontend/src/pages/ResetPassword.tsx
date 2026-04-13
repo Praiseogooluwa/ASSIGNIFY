@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Eye, EyeOff, KeyRound, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import AssignifyLogo from "@/components/AssignifyLogo";
 
 const ResetPassword = () => {
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [password, setPassword] = useState("");
@@ -18,42 +17,34 @@ const ResetPassword = () => {
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   const [tokenError, setTokenError] = useState(false);
-
-  // Supabase puts the token in the URL hash or as a query param
-  // When user clicks the reset link, Supabase redirects to:
-  // assignify.com.ng/reset-password#access_token=xxx&type=recovery
-  // OR: assignify.com.ng/reset-password?token_hash=xxx&type=recovery
   const [accessToken, setAccessToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
 
   useEffect(() => {
-    // Try hash first (Supabase default for implicit flow)
+    // Supabase puts tokens in the URL hash: #access_token=xxx&refresh_token=yyy&type=recovery
     const hash = window.location.hash;
     if (hash) {
       const params = new URLSearchParams(hash.replace("#", ""));
-      const token = params.get("access_token");
+      const aToken = params.get("access_token");
+      const rToken = params.get("refresh_token");
       const type = params.get("type");
-      if (token && type === "recovery") {
-        setAccessToken(token);
+      if (aToken && type === "recovery") {
+        setAccessToken(aToken);
+        setRefreshToken(rToken || "");
+        // Clean URL so token isn't visible
+        window.history.replaceState(null, "", "/reset-password");
         return;
       }
     }
-    // Try query params (PKCE flow)
-    const tokenHash = searchParams.get("token_hash");
-    const type = searchParams.get("type");
-    if (tokenHash && type === "recovery") {
-      setAccessToken(tokenHash);
-      return;
-    }
-    // No valid token found
     setTokenError(true);
-  }, [searchParams]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
       return;
     }
     if (password !== confirm) {
@@ -63,16 +54,37 @@ const ResetPassword = () => {
 
     setLoading(true);
     try {
-      // Call Supabase REST API directly to update password using the recovery token
       const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
       const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        throw new Error("Configuration error. Please contact support.");
+      }
+
+      // Step 1: Set the session using the recovery tokens
+      const sessionRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      let finalToken = accessToken;
+
+      if (sessionRes.ok) {
+        const sessionData = await sessionRes.json();
+        finalToken = sessionData.access_token || accessToken;
+      }
+
+      // Step 2: Update the password
       const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           "apikey": SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${accessToken}`,
+          "Authorization": `Bearer ${finalToken}`,
         },
         body: JSON.stringify({ password }),
       });
@@ -80,11 +92,10 @@ const ResetPassword = () => {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.message || data.error_description || "Failed to reset password.");
+        throw new Error(data.message || data.error_description || "Failed to reset password. The link may have expired.");
       }
 
       setDone(true);
-      // Redirect to login after 3 seconds
       setTimeout(() => navigate("/login"), 3000);
 
     } catch (err: any) {
@@ -94,13 +105,12 @@ const ResetPassword = () => {
     }
   };
 
-  // ── Invalid or missing token ──────────────────────────────────────────────
   if (tokenError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a1a14] px-4">
         <div className="w-full max-w-md bg-card rounded-xl shadow-2xl p-8 space-y-6 text-center">
           <div className="flex justify-center">
-            <AssignifyLogo size="md" variant="dark" showText={false} />
+            <AssignifyLogo size="md" variant="dark" showText={true} />
           </div>
           <div className="mx-auto h-14 w-14 rounded-full bg-destructive/10 flex items-center justify-center">
             <AlertCircle className="h-7 w-7 text-destructive" />
@@ -119,13 +129,12 @@ const ResetPassword = () => {
     );
   }
 
-  // ── Success state ──────────────────────────────────────────────────────────
   if (done) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a1a14] px-4">
         <div className="w-full max-w-md bg-card rounded-xl shadow-2xl p-8 space-y-6 text-center">
           <div className="flex justify-center">
-            <AssignifyLogo size="md" variant="dark" showText={false} />
+            <AssignifyLogo size="md" variant="dark" showText={true} />
           </div>
           <div className="mx-auto h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
             <CheckCircle className="h-7 w-7 text-primary" />
@@ -133,7 +142,7 @@ const ResetPassword = () => {
           <div>
             <h2 className="font-display text-xl text-foreground mb-2">Password Updated!</h2>
             <p className="text-sm text-muted-foreground">
-              Your password has been changed successfully. Redirecting you to login...
+              Your password has been changed. Redirecting to login...
             </p>
           </div>
           <Link to="/login">
@@ -144,13 +153,12 @@ const ResetPassword = () => {
     );
   }
 
-  // ── Main form ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0a1a14] px-4">
       <div className="w-full max-w-md bg-card rounded-xl shadow-2xl p-8 space-y-6">
-        <div className="text-center space-y-4">
+        <div className="text-center space-y-3">
           <div className="flex justify-center">
-            <AssignifyLogo size="md" variant="dark" showText={false} />
+            <AssignifyLogo size="md" variant="dark" showText={true} />
           </div>
           <div className="mx-auto h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
             <KeyRound className="h-6 w-6 text-primary" />
@@ -170,7 +178,7 @@ const ResetPassword = () => {
               <Input
                 id="password"
                 type={showPassword ? "text" : "password"}
-                placeholder="At least 8 characters"
+                placeholder="At least 6 characters"
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError(""); }}
                 required
@@ -196,9 +204,7 @@ const ResetPassword = () => {
                 value={confirm}
                 onChange={(e) => { setConfirm(e.target.value); setError(""); }}
                 required
-                className={`focus-visible:ring-primary pr-10 ${
-                  confirm && password !== confirm ? "border-destructive" : ""
-                }`}
+                className={`focus-visible:ring-primary pr-10 ${confirm && password !== confirm ? "border-destructive" : ""}`}
               />
               <button
                 type="button"
@@ -214,17 +220,13 @@ const ResetPassword = () => {
           </div>
 
           {error && (
-            <div className="flex items-start gap-1.5 text-xs text-destructive bg-destructive/10 rounded-md p-3">
+            <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 rounded-md p-3">
               <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={loading || !password || !confirm}
-          >
+          <Button type="submit" className="w-full" disabled={loading || !password || !confirm}>
             {loading ? "Updating password..." : "Update Password"}
           </Button>
         </form>

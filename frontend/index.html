@@ -22,6 +22,29 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="ASSIGNIFY | Smart Assignment Management" />
     <meta name="twitter:description" content="Create assignments, share submission links, and track student submissions with Assignify." />
+
+    <!--
+      Supabase auth redirect interceptor.
+      When Supabase redirects back after email confirmation or password reset,
+      it lands on assignify.com.ng with the token in the URL hash:
+        assignify.com.ng/#access_token=xxx&type=recovery
+      React Router hasn't loaded yet at this point — we intercept it here
+      and push the user to the correct page BEFORE React boots.
+    -->
+    <script>
+      (function () {
+        var hash = window.location.hash;
+        if (hash && hash.includes('access_token')) {
+          var params = new URLSearchParams(hash.replace('#', ''));
+          var type = params.get('type');
+          if (type === 'recovery') {
+            // Password reset — go to reset password page
+            window.location.replace('/reset-password' + window.location.hash);
+          }
+          // signup type handled by Supabase automatically
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
