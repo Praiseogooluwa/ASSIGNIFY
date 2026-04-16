@@ -235,8 +235,11 @@ async def verify_otp(
 
 
 @app.post("/auth/resend-code")
-async def resend_code(email: str = Form(...)):
+@limiter.limit("3/minute;5/hour")
+async def resend_code(request: Request, email: str = Form(...)):
     """Resend OTP verification code."""
+    if len(email) > 254:
+        raise HTTPException(status_code=400, detail="Invalid email address")
     try:
         supabase.auth.resend({"type": "signup", "email": email})
         return {"message": "New code sent"}
@@ -286,7 +289,10 @@ async def login(
 
 
 @app.post("/auth/forgot-password")
-async def forgot_password(email: str = Form(...)):
+@limiter.limit("3/minute;5/hour")
+async def forgot_password(request: Request, email: str = Form(...)):
+    if len(email) > 254:
+        raise HTTPException(status_code=400, detail="Invalid email address")
     try:
         supabase.auth.reset_password_for_email(email)
         return {"message": "If this email exists, a reset link has been sent"}
@@ -481,7 +487,9 @@ async def delete_assignment(assignment_id: str, user=Depends(get_current_user)):
 # ─── Submissions ─────────────────────────────────────────────────────────────
 
 @app.post("/submissions/{assignment_id}")
+@limiter.limit("10/minute;30/hour")
 async def submit_assignment(
+    request: Request,
     assignment_id: str,
     full_name: str = Form(...),
     matric_number: str = Form(...),
@@ -489,6 +497,14 @@ async def submit_assignment(
     group_number: Optional[int] = Form(None),
     file: UploadFile = File(...)
 ):
+    # Input length guards — prevent oversized strings from reaching the DB
+    if len(full_name) > 150:
+        raise HTTPException(status_code=400, detail="Full name is too long (max 150 characters)")
+    if len(matric_number) > 30:
+        raise HTTPException(status_code=400, detail="Matric number is too long (max 30 characters)")
+    if len(department) > 120:
+        raise HTTPException(status_code=400, detail="Department name is too long")
+
     # 1. Load assignment
     assignment = supabase.table("assignments").select("*").eq("id", assignment_id).single().execute()
     if not assignment.data:

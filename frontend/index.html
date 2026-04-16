@@ -7,6 +7,12 @@
     <title>ASSIGNIFY | Smart Assignment Management</title>
     <meta name="description" content="Create assignments, share submission links, and track student submissions with Assignify." />
 
+    <!-- Canonical URL — prevents www vs non-www duplicate indexing -->
+    <link rel="canonical" href="https://assignify.com.ng/" />
+
+    <!-- Sitemap reference -->
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="alternate icon" href="/favicon.ico" />
@@ -22,15 +28,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="ASSIGNIFY | Smart Assignment Management" />
     <meta name="twitter:description" content="Create assignments, share submission links, and track student submissions with Assignify." />
-
-    <!--
-      Supabase auth redirect interceptor.
-      When Supabase redirects back after email confirmation or password reset,
-      it lands on assignify.com.ng with the token in the URL hash:
-        assignify.com.ng/#access_token=xxx&type=recovery
-      React Router hasn't loaded yet at this point — we intercept it here
-      and push the user to the correct page BEFORE React boots.
-    -->
+    <meta name="twitter:image" content="https://assignify.com.ng/og-image.png" />
     <script>
       (function () {
         var hash = window.location.hash;

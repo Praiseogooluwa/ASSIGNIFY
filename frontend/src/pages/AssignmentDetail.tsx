@@ -229,7 +229,7 @@ const AssignmentDetail = () => {
   if (!assignment) return <SidebarLayout><p className="p-8 text-muted-foreground">Assignment not found.</p></SidebarLayout>;
 
   const isClosed = assignment.is_closed || isPast(new Date(assignment.deadline));
-  const isManuallyCllosed = assignment.is_closed && !isPast(new Date(assignment.deadline));
+  const isManuallyClose = assignment.is_closed && !isPast(new Date(assignment.deadline));
 
   const filtered = submissions.filter((s) => {
     const q = search.toLowerCase();
