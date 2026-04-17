@@ -58,12 +58,19 @@ ADMIN_SECRET = os.getenv("ADMIN_SECRET", "admin_super_secret_key_change_this")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
+# ─── Failed login tracking (in-memory, resets on restart) ─────────────────────
+# Stores: { email: {"count": int, "locked_until": datetime | None} }
+_failed_logins: dict = defaultdict(lambda: {"count": 0, "locked_until": None})
+MAX_FAILED = 5
+LOCKOUT_MINUTES = 15
+
 security = HTTPBearer()
 
 
 # ─── Departments ──────────────────────────────────────────────────────────────
 
 DEPARTMENTS = [
+    # Education
     "Biology Education",
     "Chemistry Education",
     "Computer Science Education",
@@ -83,6 +90,80 @@ DEPARTMENTS = [
     "Early Childhood Education",
     "Physical & Health Education",
     "Sports Science",
+    # Engineering & Technology
+    "Civil Engineering",
+    "Mechanical Engineering",
+    "Electrical Engineering",
+    "Electronic Engineering",
+    "Computer Engineering",
+    "Chemical Engineering",
+    "Agricultural Engineering",
+    "Systems Engineering",
+    "Petroleum Engineering",
+    "Biomedical Engineering",
+    "Software Engineering",
+    # Sciences
+    "Computer Science",
+    "Mathematics",
+    "Statistics",
+    "Physics",
+    "Chemistry",
+    "Biology",
+    "Biochemistry",
+    "Microbiology",
+    "Geology",
+    "Environmental Science",
+    "Botany",
+    "Zoology",
+    # Medicine & Health
+    "Medicine & Surgery",
+    "Nursing Science",
+    "Pharmacy",
+    "Dentistry",
+    "Medical Laboratory Science",
+    "Physiotherapy",
+    "Radiography",
+    "Public Health",
+    "Optometry",
+    # Law
+    "Law",
+    # Management & Social Sciences
+    "Accounting",
+    "Business Administration",
+    "Economics",
+    "Finance",
+    "Marketing",
+    "Public Administration",
+    "Sociology",
+    "Psychology",
+    "Mass Communication",
+    "Political Science",
+    "International Relations",
+    "Philosophy",
+    "Geography",
+    # Agriculture
+    "Animal Science",
+    "Crop Science",
+    "Soil Science",
+    "Fisheries",
+    "Forestry",
+    "Food Science & Technology",
+    "Agricultural Economics",
+    # Arts & Humanities
+    "English & Literary Studies",
+    "Linguistics",
+    "History",
+    "Theatre Arts",
+    "Fine Arts",
+    "Music",
+    "Religious Studies",
+    "Arabic",
+    # Architecture & Built Environment
+    "Architecture",
+    "Estate Management",
+    "Quantity Surveying",
+    "Urban & Regional Planning",
+    "Building Technology",
 ]
 
 
@@ -158,6 +239,16 @@ def verify_admin_token(credentials: HTTPAuthorizationCredentials = Depends(secur
 
 # ─── Auth endpoints ───────────────────────────────────────────────────────────
 
+def validate_password_strength(password: str):
+    """Enforce minimum password security requirements."""
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if not re.search(r'[A-Z]', password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one uppercase letter")
+    if not re.search(r'[0-9]', password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one number")
+
+
 @app.post("/auth/register")
 @limiter.limit("5/minute")
 async def register(
@@ -168,9 +259,11 @@ async def register(
 ):
     """
     Register a new lecturer.
-    - Returns 409 if email already exists
+    - Returns generic error regardless of whether email exists (prevents enumeration)
+    - Enforces password strength: 8+ chars, 1 uppercase, 1 number
     - Supabase sends OTP email automatically
     """
+    validate_password_strength(password)
     try:
         response = supabase.auth.sign_up({
             "email": email,
@@ -188,10 +281,8 @@ async def register(
         
         identities = getattr(response.user, "identities", None)
         if identities is not None and len(identities) == 0:
-            raise HTTPException(
-                status_code=409,
-                detail="An account with this email already exists. Please sign in instead."
-            )
+            # Email already exists — return same response as success to prevent enumeration
+            return {"message": "Verification code sent to your email"}
 
         return {"message": "Verification code sent to your email"}
     except HTTPException:
@@ -199,10 +290,8 @@ async def register(
     except Exception as e:
         detail = str(e).lower()
         if "already registered" in detail or "already been registered" in detail or "user already registered" in detail:
-            raise HTTPException(
-                status_code=409,
-                detail="An account with this email already exists. Please sign in instead."
-            )
+            # Return generic success to prevent email enumeration
+            return {"message": "Verification code sent to your email"}
         raise HTTPException(status_code=400, detail="Registration failed. Please try again.")
 
 
@@ -256,9 +345,18 @@ async def login(
 ):
     """
     Login and return JWT token.
+    - Locks account for 15 minutes after 5 failed attempts
     - Returns specific error if email not confirmed yet
     - Returns generic error for wrong password (security best practice)
     """
+    # ── Lockout check ──────────────────────────────────────────────────────────
+    record = _failed_logins[email]
+    if record["locked_until"] and datetime.now(timezone.utc) < record["locked_until"]:
+        remaining = int((record["locked_until"] - datetime.now(timezone.utc)).total_seconds() / 60) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts. Try again in {remaining} minute(s)."
+        )
     try:
         response = supabase.auth.sign_in_with_password({
             "email": email,
@@ -266,6 +364,8 @@ async def login(
         })
         if not response.session:
             raise HTTPException(status_code=401, detail="Invalid credentials")
+        # ── Success — reset failed counter ─────────────────────────────────────
+        _failed_logins[email] = {"count": 0, "locked_until": None}
         full_name = response.user.user_metadata.get("full_name", "") if response.user.user_metadata else ""
         return {
             "token": response.session.access_token,
@@ -285,6 +385,15 @@ async def login(
                 status_code=401,
                 detail="Please verify your email first. Check your inbox for a 6-digit code."
             )
+        # ── Failed attempt — increment counter ─────────────────────────────────
+        record["count"] += 1
+        if record["count"] >= MAX_FAILED:
+            record["locked_until"] = datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)
+            record["count"] = 0
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed attempts. Account locked for {LOCKOUT_MINUTES} minutes."
+            )
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
 
@@ -303,6 +412,41 @@ async def forgot_password(request: Request, email: str = Form(...)):
             detail="Something went wrong. Please try again."
         )
 
+
+
+
+@app.post("/auth/change-password")
+@limiter.limit("5/minute")
+async def change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    current_user=Depends(get_current_user),
+):
+    """Allow a logged-in lecturer to change their own password."""
+    validate_password_strength(new_password)
+    try:
+        # Re-authenticate with current password to confirm identity
+        sign_in = supabase.auth.sign_in_with_password({
+            "email": current_user.email,
+            "password": current_password,
+        })
+        if not sign_in.session:
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    try:
+        # Use admin API to update password (service role required)
+        supabase.auth.admin.update_user_by_id(
+            current_user.id,
+            {"password": new_password}
+        )
+        return {"message": "Password updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to update password. Please try again.")
 
 # ─── Departments ──────────────────────────────────────────────────────────────
 
@@ -1044,7 +1188,10 @@ async def admin_login(
     email: str = Form(...),
     password: str = Form(...),
 ):
-    if email != ADMIN_EMAIL or password != ADMIN_PASSWORD:
+    # Timing-safe comparison prevents timing attacks on both fields
+    email_ok = secrets.compare_digest(email.encode(), ADMIN_EMAIL.encode())
+    password_ok = secrets.compare_digest(password.encode(), ADMIN_PASSWORD.encode())
+    if not email_ok or not password_ok:
         raise HTTPException(status_code=401, detail="Invalid admin credentials")
 
     timestamp = int(datetime.now(timezone.utc).timestamp())

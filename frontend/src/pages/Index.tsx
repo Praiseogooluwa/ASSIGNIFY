@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight, CheckCircle, FileText, BarChart2, Download,
   Shield, Clock, GraduationCap, Users, Zap, ChevronDown,
-  Star, Menu, X,
+  Star, Menu, X, Plus, Minus, Mail, ExternalLink,
 } from "lucide-react";
 import AssignifyLogo from "@/components/AssignifyLogo";
 
@@ -12,37 +12,31 @@ const features = [
     icon: FileText,
     title: "Create in 30 seconds",
     desc: "Set course, title, deadline, individual or group. One link is generated — share it anywhere.",
-    color: "from-emerald-500/10 to-transparent",
   },
   {
     icon: CheckCircle,
     title: "Track every submission",
     desc: "Real-time dashboard shows who submitted, who's missing, and who came in late.",
-    color: "from-teal-500/10 to-transparent",
   },
   {
     icon: BarChart2,
     title: "CA collation report",
-    desc: "Select all semester assignments, upload your register, download a department-by-department Excel report.",
-    color: "from-green-500/10 to-transparent",
+    desc: "Select semester assignments, upload your register, download a department-by-department Excel report.",
   },
   {
     icon: Download,
     title: "Download all files",
     desc: "One click gets you a ZIP of all submissions, organised by department and group automatically.",
-    color: "from-emerald-500/10 to-transparent",
   },
   {
     icon: Shield,
     title: "Class list upload",
     desc: "Upload your register in Excel, Word, PDF or CSV. See exactly who from your class is missing.",
-    color: "from-teal-500/10 to-transparent",
   },
   {
     icon: Clock,
     title: "Deadline control",
     desc: "Close early, extend the deadline, or reopen — all with one click from your dashboard.",
-    color: "from-green-500/10 to-transparent",
   },
 ];
 
@@ -85,10 +79,41 @@ const testimonials = [
   },
 ];
 
+const faqs = [
+  {
+    q: "Do students need to create an account?",
+    a: "No. Students just click the link and submit their file — no signup, no password, no app to install. Just their name, matric number, department, and file.",
+  },
+  {
+    q: "What file types can students submit?",
+    a: "Students can submit PDF, Word (.doc, .docx) files up to 10MB per submission. These are the formats accepted in most Nigerian universities.",
+  },
+  {
+    q: "How does the CA collation report work?",
+    a: "At the end of semester, select any combination of your assignments, optionally upload your full class register (Excel, CSV, Word or PDF), and Assignify generates a colour-coded Excel report showing every student's submission status across all selected assignments.",
+  },
+  {
+    q: "Can I extend a deadline after it's passed?",
+    a: "Yes. From your dashboard you can reopen any closed assignment, push the deadline forward, and students can continue submitting. You can also close an assignment early at any time.",
+  },
+  {
+    q: "What happens if a student submits twice?",
+    a: "Assignify flags duplicate matric numbers so you can see both entries. The system doesn't silently overwrite — you always see the full picture.",
+  },
+  {
+    q: "Is Assignify free?",
+    a: "Yes, Assignify is completely free for lecturers. There are no subscription fees, no credit card required, and no hidden costs. Just create an account and start.",
+  },
+  {
+    q: "Is my data and my students' data safe?",
+    a: "Yes. Assignify is built on Supabase (enterprise-grade infrastructure) with encrypted data storage. Student submission files are stored securely and are only accessible to you, the lecturer who owns the assignment.",
+  },
+];
+
 const Landing = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const heroRef = useRef<HTMLDivElement>(null);
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -97,18 +122,18 @@ const Landing = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#070f0a] text-white overflow-x-hidden font-sans">
+    <div className="min-h-screen bg-[#070f0a] text-white overflow-x-hidden" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
 
       {/* ── Nav ─────────────────────────────────────────────────────────────── */}
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-[#070f0a]/95 backdrop-blur-xl border-b border-white/5 shadow-lg shadow-black/20" : ""}`}>
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <AssignifyLogo size="md" variant="light" showText={true} />
 
-          {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-8">
             <a href="#features" className="text-sm text-white/60 hover:text-white transition-colors">Features</a>
             <a href="#how-it-works" className="text-sm text-white/60 hover:text-white transition-colors">How it works</a>
             <a href="#testimonials" className="text-sm text-white/60 hover:text-white transition-colors">Testimonials</a>
+            <a href="#faq" className="text-sm text-white/60 hover:text-white transition-colors">FAQ</a>
           </div>
 
           <div className="hidden md:flex items-center gap-3">
@@ -120,18 +145,17 @@ const Landing = () => {
             </Link>
           </div>
 
-          {/* Mobile menu button */}
           <button className="md:hidden text-white/70" onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
 
-        {/* Mobile menu */}
         {menuOpen && (
           <div className="md:hidden bg-[#0d1a12] border-t border-white/5 px-6 py-4 space-y-3">
             <a href="#features" className="block text-sm text-white/70 py-2" onClick={() => setMenuOpen(false)}>Features</a>
             <a href="#how-it-works" className="block text-sm text-white/70 py-2" onClick={() => setMenuOpen(false)}>How it works</a>
             <a href="#testimonials" className="block text-sm text-white/70 py-2" onClick={() => setMenuOpen(false)}>Testimonials</a>
+            <a href="#faq" className="block text-sm text-white/70 py-2" onClick={() => setMenuOpen(false)}>FAQ</a>
             <div className="pt-2 flex flex-col gap-2">
               <Link to="/login" className="text-center text-sm text-white/70 border border-white/10 rounded-lg py-2.5">Sign in</Link>
               <Link to="/register" className="text-center text-sm bg-[#0a846b] text-white rounded-lg py-2.5 font-semibold">Get started free</Link>
@@ -141,30 +165,27 @@ const Landing = () => {
       </nav>
 
       {/* ── Hero ────────────────────────────────────────────────────────────── */}
-      <section ref={heroRef} className="relative min-h-screen flex flex-col justify-center pt-16 pb-12 px-6 overflow-hidden">
-        {/* Background elements */}
+      <section className="relative min-h-screen flex flex-col justify-center pt-16 pb-12 px-6 overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[600px] bg-[#0a846b]/8 rounded-full blur-3xl" />
           <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-[#1abb9b]/5 rounded-full blur-3xl" />
-          {/* Grid */}
           <div className="absolute inset-0 opacity-[0.025]"
             style={{
               backgroundImage: "linear-gradient(#1abb9b 1px, transparent 1px), linear-gradient(90deg, #1abb9b 1px, transparent 1px)",
               backgroundSize: "80px 80px",
             }}
           />
-          {/* Diagonal accent line */}
           <div className="absolute top-0 right-[20%] w-px h-full bg-gradient-to-b from-transparent via-[#1abb9b]/10 to-transparent" />
         </div>
 
         <div className="relative max-w-5xl mx-auto text-center">
-          {/* Badge */}
           <div className="inline-flex items-center gap-2.5 bg-[#0a846b]/15 border border-[#0a846b]/30 text-[#1abb9b] text-xs font-semibold px-4 py-2 rounded-full mb-10 tracking-wide">
             <span className="w-1.5 h-1.5 bg-[#1abb9b] rounded-full animate-pulse" />
             BUILT FOR NIGERIAN UNIVERSITIES
           </div>
 
-          <h1 className="text-5xl md:text-6xl lg:text-[76px] font-normal leading-[1.05] mb-6 tracking-tight"
+          <h1
+            className="text-5xl md:text-6xl lg:text-[76px] font-normal leading-[1.05] mb-6 tracking-tight"
             style={{ fontFamily: "'Instrument Serif', Georgia, serif" }}
           >
             Assignment management
@@ -191,11 +212,8 @@ const Landing = () => {
 
           {/* Dashboard mockup */}
           <div className="relative max-w-4xl mx-auto">
-            {/* Glow */}
             <div className="absolute -inset-4 bg-[#0a846b]/10 rounded-3xl blur-2xl" />
-
             <div className="relative bg-[#0d1a12] rounded-2xl border border-white/8 overflow-hidden shadow-2xl">
-              {/* Browser chrome */}
               <div className="flex items-center gap-2 px-4 py-3 bg-[#0a150e] border-b border-white/5">
                 <div className="flex gap-1.5">
                   <div className="w-3 h-3 rounded-full bg-[#ff5f57]/70" />
@@ -208,7 +226,6 @@ const Landing = () => {
               </div>
 
               <div className="p-5 space-y-4">
-                {/* Stats */}
                 <div className="grid grid-cols-3 gap-3">
                   {[
                     { label: "Total Assignments", value: "14", color: "text-white" },
@@ -222,7 +239,6 @@ const Landing = () => {
                   ))}
                 </div>
 
-                {/* Assignment list */}
                 <div className="space-y-2">
                   {[
                     { course: "MAT102", title: "Mid-Semester Assignment", count: 94, level: "100L", open: true },
@@ -230,7 +246,7 @@ const Landing = () => {
                     { course: "PHY101", title: "Lab Report — Experiment 3", count: 128, level: "100L", open: false },
                     { course: "CHM201", title: "Practical Write-Up", count: 43, level: "200L", open: false },
                   ].map((a) => (
-                    <div key={a.title} className="flex items-center justify-between bg-white/3 rounded-xl px-4 py-3 border border-white/4 hover:border-[#1abb9b]/20 transition-colors">
+                    <div key={a.title} className="flex items-center justify-between bg-white/3 rounded-xl px-4 py-3 border border-white/4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 bg-[#0a846b]/20 rounded-lg flex items-center justify-center shrink-0">
                           <FileText className="h-3.5 w-3.5 text-[#1abb9b]" />
@@ -241,7 +257,7 @@ const Landing = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-xs text-white/40">{a.count} submissions</span>
+                        <span className="text-xs text-white/40 hidden sm:block">{a.count} submissions</span>
                         <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${a.open ? "bg-[#0a846b]/20 text-[#1abb9b]" : "bg-white/5 text-white/40"}`}>
                           {a.open ? "● Open" : "Closed"}
                         </span>
@@ -254,7 +270,6 @@ const Landing = () => {
           </div>
         </div>
 
-        {/* Scroll hint */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-40">
           <span className="text-xs text-white/50 tracking-widest">SCROLL</span>
           <ChevronDown className="h-4 w-4 animate-bounce text-[#1abb9b]" />
@@ -281,9 +296,9 @@ const Landing = () => {
       </section>
 
       {/* ── Features ─────────────────────────────────────────────────────────── */}
-      <section id="features" className="py-28 px-6">
+      <section id="features" className="py-24 px-6">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
+          <div className="text-center mb-14">
             <p className="text-xs text-[#1abb9b] font-bold tracking-widest uppercase mb-3">FEATURES</p>
             <h2 className="text-4xl md:text-5xl font-normal mb-4"
               style={{ fontFamily: "'Instrument Serif', serif" }}>
@@ -295,9 +310,9 @@ const Landing = () => {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {features.map((f, i) => (
+            {features.map((f) => (
               <div key={f.title}
-                className={`group relative bg-gradient-to-br ${f.color} bg-white/[0.025] border border-white/6 hover:border-[#0a846b]/40 rounded-2xl p-6 transition-all duration-300 hover:-translate-y-0.5`}
+                className="group bg-white/[0.025] border border-white/6 hover:border-[#0a846b]/40 rounded-2xl p-6 transition-all duration-300 hover:-translate-y-0.5"
               >
                 <div className="w-11 h-11 bg-[#0a846b]/15 group-hover:bg-[#0a846b]/25 rounded-xl flex items-center justify-center mb-5 transition-colors">
                   <f.icon className="h-5 w-5 text-[#1abb9b]" />
@@ -311,9 +326,9 @@ const Landing = () => {
       </section>
 
       {/* ── How it works ─────────────────────────────────────────────────────── */}
-      <section id="how-it-works" className="py-28 px-6 bg-[#070f0a]">
+      <section id="how-it-works" className="py-24 px-6 bg-[#070f0a]">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-16">
+          <div className="text-center mb-14">
             <p className="text-xs text-[#1abb9b] font-bold tracking-widest uppercase mb-3">HOW IT WORKS</p>
             <h2 className="text-4xl md:text-5xl font-normal mb-4"
               style={{ fontFamily: "'Instrument Serif', serif" }}>
@@ -343,9 +358,9 @@ const Landing = () => {
       </section>
 
       {/* ── Testimonials ──────────────────────────────────────────────────────── */}
-      <section id="testimonials" className="py-28 px-6">
+      <section id="testimonials" className="py-24 px-6">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
+          <div className="text-center mb-14">
             <p className="text-xs text-[#1abb9b] font-bold tracking-widest uppercase mb-3">TESTIMONIALS</p>
             <h2 className="text-4xl md:text-5xl font-normal mb-4"
               style={{ fontFamily: "'Instrument Serif', serif" }}>
@@ -370,8 +385,59 @@ const Landing = () => {
         </div>
       </section>
 
+      {/* ── FAQ ──────────────────────────────────────────────────────────────── */}
+      <section id="faq" className="py-24 px-6 bg-[#070f0a]">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-14">
+            <p className="text-xs text-[#1abb9b] font-bold tracking-widest uppercase mb-3">FAQ</p>
+            <h2 className="text-4xl md:text-5xl font-normal mb-4"
+              style={{ fontFamily: "'Instrument Serif', serif" }}>
+              Common questions
+            </h2>
+            <p className="text-white/50 text-lg">Everything you need to know before getting started.</p>
+          </div>
+
+          <div className="space-y-3">
+            {faqs.map((faq, i) => (
+              <div key={i}
+                className={`border rounded-2xl overflow-hidden transition-all duration-200 ${openFaq === i ? "border-[#0a846b]/40 bg-white/[0.035]" : "border-white/6 bg-white/[0.02] hover:border-white/10"}`}
+              >
+                <button
+                  className="w-full flex items-center justify-between px-6 py-5 text-left"
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                >
+                  <span className="text-white font-medium text-sm pr-4">{faq.q}</span>
+                  <span className="shrink-0 w-6 h-6 rounded-full bg-white/5 flex items-center justify-center">
+                    {openFaq === i
+                      ? <Minus className="h-3 w-3 text-[#1abb9b]" />
+                      : <Plus className="h-3 w-3 text-white/40" />
+                    }
+                  </span>
+                </button>
+                {openFaq === i && (
+                  <div className="px-6 pb-5">
+                    <p className="text-white/55 text-sm leading-relaxed">{faq.a}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-10 text-center">
+            <p className="text-white/40 text-sm mb-3">Still have questions?</p>
+            <a
+              href="mailto:support@assignify.com.ng"
+              className="inline-flex items-center gap-2 text-[#1abb9b] hover:text-[#23d4b0] text-sm font-medium transition-colors"
+            >
+              <Mail className="h-4 w-4" />
+              support@assignify.com.ng
+            </a>
+          </div>
+        </div>
+      </section>
+
       {/* ── CTA ──────────────────────────────────────────────────────────────── */}
-      <section className="py-28 px-6 bg-[#0a150e]">
+      <section className="py-24 px-6 bg-[#0a150e]">
         <div className="max-w-3xl mx-auto text-center">
           <div className="relative">
             <div className="absolute inset-0 bg-[#0a846b]/8 rounded-3xl blur-2xl" />
@@ -390,12 +456,17 @@ const Landing = () => {
                 Free for all lecturers. No credit card. No setup fees. Takes less than 2 minutes to get started.
               </p>
 
-              <Link to="/register"
-                className="group inline-flex items-center gap-2 bg-[#0a846b] hover:bg-[#0c9880] text-white text-base font-semibold px-10 py-4 rounded-xl transition-all duration-200 shadow-xl shadow-[#0a846b]/25"
-              >
-                Create your free account
-                <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-              </Link>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <Link to="/register"
+                  className="group inline-flex items-center gap-2 bg-[#0a846b] hover:bg-[#0c9880] text-white text-base font-semibold px-10 py-4 rounded-xl transition-all duration-200 shadow-xl shadow-[#0a846b]/25"
+                >
+                  Create your free account
+                  <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </Link>
+                <Link to="/login" className="text-white/50 hover:text-white text-sm transition-colors">
+                  Sign in instead →
+                </Link>
+              </div>
             </div>
           </div>
         </div>
@@ -403,21 +474,44 @@ const Landing = () => {
 
       {/* ── Footer ───────────────────────────────────────────────────────────── */}
       <footer className="border-t border-white/5 py-10 px-6 bg-[#070f0a]">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-          <AssignifyLogo size="sm" variant="light" showText={true} />
-          <p className="text-xs text-white/25 text-center">
-            Built by{" "}
-            <a href="https://www.linkedin.com/in/praise-ogooluwa" target="_blank" rel="noopener noreferrer"
-              className="text-[#1abb9b] hover:underline">
-              Isaiah Ogooluwa Bakare
-            </a>{" "}
-            · © 2026 Assignify
-          </p>
-          <div className="flex items-center gap-6 text-xs text-white/30">
-            <a href="mailto:support@assignify.com.ng" className="hover:text-white/60 transition-colors">
-              support@assignify.com.ng
-            </a>
-            <Link to="/login" className="hover:text-white/60 transition-colors">Lecturer Login</Link>
+        <div className="max-w-6xl mx-auto">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8">
+            <div className="space-y-2">
+              <AssignifyLogo size="sm" variant="light" showText={true} />
+              <p className="text-xs text-white/30 max-w-xs">
+                Smart assignment collection for Nigerian universities. Free for all lecturers.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 sm:flex sm:items-center gap-x-10 gap-y-3 text-xs text-white/40">
+              <div className="space-y-2.5">
+                <p className="text-white/20 uppercase tracking-widest text-[10px] font-semibold">Product</p>
+                <a href="#features" className="block hover:text-white/70 transition-colors">Features</a>
+                <a href="#how-it-works" className="block hover:text-white/70 transition-colors">How it works</a>
+                <a href="#faq" className="block hover:text-white/70 transition-colors">FAQ</a>
+              </div>
+              <div className="space-y-2.5">
+                <p className="text-white/20 uppercase tracking-widest text-[10px] font-semibold">Legal</p>
+                <Link to="/privacy" className="block hover:text-white/70 transition-colors">Privacy Policy</Link>
+                <Link to="/terms" className="block hover:text-white/70 transition-colors">Terms of Service</Link>
+                <a href="mailto:support@assignify.com.ng" className="block hover:text-white/70 transition-colors">Contact</a>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-white/5 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/25">
+            <p>
+              Built by{" "}
+              <a href="https://www.linkedin.com/in/praise-ogooluwa" target="_blank" rel="noopener noreferrer"
+                className="text-[#1abb9b]/70 hover:text-[#1abb9b] transition-colors">
+                Isaiah Ogooluwa Bakare
+              </a>{" "}
+              · © 2026 Assignify
+            </p>
+            <div className="flex items-center gap-4">
+              <a href="mailto:support@assignify.com.ng" className="hover:text-white/50 transition-colors">support@assignify.com.ng</a>
+              <Link to="/login" className="hover:text-white/50 transition-colors">Lecturer Login</Link>
+            </div>
           </div>
         </div>
       </footer>

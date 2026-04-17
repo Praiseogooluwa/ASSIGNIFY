@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, PlusCircle, LogOut, HelpCircle, Menu, X } from "lucide-react";
+import { LayoutDashboard, PlusCircle, LogOut, HelpCircle, Menu, X, Settings } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import AssignifyLogo from "./AssignifyLogo";
 
@@ -57,6 +57,7 @@ const SidebarLayout = ({ children }: { children: ReactNode }) => {
   const navItems = [
     { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { to: "/assignments/new", icon: PlusCircle, label: "Create Assignment" },
+    { to: "/settings", icon: Settings, label: "Settings" },
   ];
 
   const handleLogout = () => {

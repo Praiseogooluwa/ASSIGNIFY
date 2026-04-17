@@ -274,7 +274,7 @@ const AssignmentDetail = () => {
             </button>
             {showBrief && (
               <div className="px-5 py-4 bg-white border-t border-border">
-                <p className="font-display text-base text-foreground whitespace-pre-wrap leading-relaxed">
+                <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed font-body">
                   {assignment.instructions}
                 </p>
               </div>

@@ -65,7 +65,7 @@ const AdminDashboard = () => {
 
   const handleLogout = () => {
     localStorage.removeItem("ap_admin_token");
-    navigate("/admin/login");
+    navigate("/admin/x9p2k/login");
   };
 
   const filtered = lecturers.filter(

@@ -21,9 +21,9 @@ adminApi.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401 || error.response?.status === 403) {
       const currentPath = window.location.pathname;
-      if (currentPath.startsWith("/admin") && currentPath !== "/admin/login") {
+      if (currentPath.startsWith("/admin") && currentPath !== "/admin/x9p2k/login") {
         localStorage.removeItem("ap_admin_token");
-        window.location.href = "/admin/login";
+        window.location.href = "/admin/x9p2k/login";
       }
     }
     return Promise.reject(error);

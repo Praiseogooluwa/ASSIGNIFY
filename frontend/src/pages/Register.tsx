@@ -30,6 +30,21 @@ const Register = () => {
   const [resending, setResending] = useState(false);
   const [formError, setFormError] = useState("");
 
+  const getPasswordStrength = (pw: string): { score: number; label: string; color: string } => {
+    let score = 0;
+    if (pw.length >= 8) score++;
+    if (pw.length >= 12) score++;
+    if (/[A-Z]/.test(pw)) score++;
+    if (/[0-9]/.test(pw)) score++;
+    if (/[^A-Za-z0-9]/.test(pw)) score++;
+    if (score <= 1) return { score, label: "Weak", color: "bg-red-500" };
+    if (score <= 2) return { score, label: "Fair", color: "bg-orange-400" };
+    if (score <= 3) return { score, label: "Good", color: "bg-yellow-400" };
+    return { score, label: "Strong", color: "bg-emerald-500" };
+  };
+
+  const strength = getPasswordStrength(password);
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
@@ -37,8 +52,16 @@ const Register = () => {
       setFormError("Passwords don't match");
       return;
     }
-    if (password.length < 6) {
-      setFormError("Password must be at least 6 characters");
+    if (password.length < 8) {
+      setFormError("Password must be at least 8 characters");
+      return;
+    }
+    if (!/[A-Z]/.test(password)) {
+      setFormError("Password must contain at least one uppercase letter");
+      return;
+    }
+    if (!/[0-9]/.test(password)) {
+      setFormError("Password must contain at least one number");
       return;
     }
     setLoading(true);
@@ -55,8 +78,7 @@ const Register = () => {
       const detail = err.response?.data?.detail || err.response?.data?.message || "";
 
       if (status === 409) {
-        // Email already registered — show error and offer to go to login
-        setFormError("An account with this email already exists.");
+        setFormError("Registration failed. Please check your details and try again.");
       } else {
         setFormError(detail || "Registration failed. Please try again.");
       }
@@ -166,12 +188,7 @@ const Register = () => {
                 {formError && (
                   <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 flex items-start gap-2 text-sm">
                     <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>
-                      {formError}
-                      {formError.includes("already exists") && (
-                        <> <Link to="/login" className="underline font-semibold">Sign in instead →</Link></>
-                      )}
-                    </span>
+                    <span>{formError}</span>
                   </div>
                 )}
 
@@ -206,7 +223,7 @@ const Register = () => {
                       <Input
                         id="regPassword"
                         type={showPassword ? "text" : "password"}
-                        placeholder="Min. 6 characters"
+                        placeholder="Min. 8 characters"
                         value={password}
                         onChange={(e) => { setPassword(e.target.value); setFormError(""); }}
                         required
@@ -217,6 +234,18 @@ const Register = () => {
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
+                    {password.length > 0 && (
+                      <div className="space-y-1 mt-1">
+                        <div className="flex gap-1">
+                          {[1,2,3,4].map((i) => (
+                            <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${strength.score >= i ? strength.color : "bg-muted"}`} />
+                          ))}
+                        </div>
+                        <p className={`text-xs font-medium ${strength.score <= 1 ? "text-red-500" : strength.score <= 2 ? "text-orange-400" : strength.score <= 3 ? "text-yellow-600" : "text-emerald-600"}`}>
+                          {strength.label} password{strength.score < 3 ? " — add uppercase, numbers, or symbols" : ""}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="confirmPassword" className="text-sm font-medium">Confirm Password</Label>

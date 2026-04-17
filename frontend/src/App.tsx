@@ -16,6 +16,9 @@ import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 import Landing from "./pages/Index";
+import Settings from "./pages/Settings";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 
 
 const queryClient = new QueryClient();
@@ -37,7 +40,7 @@ const AdminGuestRoute = ({ children }: { children: React.ReactNode }) => {
 // Protects admin routes
 const AdminProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem("ap_admin_token");
-  if (!token) return <Navigate to="/admin/login" replace />;
+  if (!token) return <Navigate to="/admin/x9p2k/login" replace />;
   return <>{children}</>;
 };
 
@@ -50,6 +53,8 @@ const App = () => (
         <Routes>
           {/* Root redirect */}
           <Route path="/" element={<Landing />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
 
           {/* Lecturer Auth — locked out if already logged in */}
           <Route path="/login" element={<GuestOnlyRoute><Login /></GuestOnlyRoute>} />
@@ -61,13 +66,16 @@ const App = () => (
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/assignments/new" element={<ProtectedRoute><CreateAssignment /></ProtectedRoute>} />
           <Route path="/assignments/:id" element={<ProtectedRoute><AssignmentDetail /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 
           {/* Student submission — completely isolated, no auth, no nav back to lecturer pages */}
           <Route path="/submit/:id" element={<StudentSubmission />} />
 
           {/* Super Admin Routes — separate token, separate flow */}
-          <Route path="/admin/login" element={<AdminGuestRoute><AdminLogin /></AdminGuestRoute>} />
+          <Route path="/admin/x9p2k/login" element={<AdminGuestRoute><AdminLogin /></AdminGuestRoute>} />
           <Route path="/admin/dashboard" element={<AdminProtectedRoute><AdminDashboard /></AdminProtectedRoute>} />
+          {/* Redirect old guessable path to 404 */}
+          <Route path="/admin/login" element={<Navigate to="/not-found" replace />} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>

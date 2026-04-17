@@ -45,6 +45,7 @@ const StudentSubmission = () => {
   const [countdown, setCountdown] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
+  const [submissionRef, setSubmissionRef] = useState("");
   const [briefOpen, setBriefOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -142,6 +143,7 @@ const StudentSubmission = () => {
         matric: form.matric_number.toUpperCase(),
         time: format(new Date(), "d MMM yyyy · h:mm a"),
       });
+      setSubmissionRef(`ASG-${Date.now().toString(36).toUpperCase()}`);
       setSubmitted(true);
     } catch (err: any) {
       setError(err.response?.data?.message || "Submission failed. Please try again.");
@@ -181,6 +183,17 @@ const StudentSubmission = () => {
             <p className="font-medium text-foreground">{submittedInfo.name}</p>
             <p className="font-mono text-sm">{submittedInfo.matric}</p>
             <p className="text-sm">{submittedInfo.time}</p>
+            <div className="pt-2 border-t mt-2">
+              <p className="text-xs text-muted-foreground mb-1">Submission Reference</p>
+              <div className="flex items-center justify-between bg-muted rounded px-3 py-2">
+                <span className="font-mono text-sm font-semibold text-foreground">{submissionRef}</span>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(submissionRef); }}
+                  className="text-xs text-primary hover:underline ml-4"
+                >Copy</button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Save this ID as proof of submission</p>
+            </div>
           </div>
           <p className="text-sm text-muted-foreground">
             ✅ Your submission has been recorded. You may now close this tab.
@@ -226,7 +239,7 @@ const StudentSubmission = () => {
               style={{ maxHeight: briefOpen ? "500px" : "0" }}
             >
               <div className="px-5 pb-5 pt-2">
-                <div className="bg-muted/30 rounded-lg p-5 font-display text-base leading-relaxed text-foreground whitespace-pre-wrap">
+                <div className="bg-muted/30 rounded-lg p-5 text-base leading-relaxed text-foreground whitespace-pre-wrap font-body text-sm">
                   {toSentenceCase(assignment.instructions || "")}
                 </div>
               </div>
