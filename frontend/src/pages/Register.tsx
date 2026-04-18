@@ -11,15 +11,35 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import AssignifyLogo from "@/components/AssignifyLogo";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 
-// Replace with your actual site key. Use "1x00000000000000000000AA" for dev testing.
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
 
+// ── Shared script loader (safe to call multiple times) ───────────────────────
+function loadTurnstileScript() {
+  if (document.querySelector("#cf-turnstile-script")) return;
+  const script = document.createElement("script");
+  script.id = "cf-turnstile-script";
+  script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+  script.async = true;
+  script.defer = true;
+  document.head.appendChild(script);
+}
 
-function useTurnstile(onVerified: (token: string) => void, onExpired: () => void) {
+function useTurnstile(
+  onVerified: (token: string) => void,
+  onExpired: () => void,
+) {
   const widgetRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const mount = useCallback(() => {
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const mountWidget = useCallback(() => {
     if (!containerRef.current || !window.turnstile || widgetRef.current) return;
     widgetRef.current = window.turnstile.render(containerRef.current, {
       sitekey: TURNSTILE_SITE_KEY,
@@ -29,7 +49,26 @@ function useTurnstile(onVerified: (token: string) => void, onExpired: () => void
       theme: "light",
       size: "normal",
     });
+    stopPolling();
   }, [onVerified, onExpired]);
+
+  useEffect(() => {
+    loadTurnstileScript();
+
+    pollRef.current = setInterval(() => {
+      if (window.turnstile) {
+        mountWidget();
+      }
+    }, 100);
+
+    return () => {
+      stopPolling();
+      if (widgetRef.current && window.turnstile) {
+        try { window.turnstile.remove(widgetRef.current); } catch (_) {}
+        widgetRef.current = null;
+      }
+    };
+  }, [mountWidget]);
 
   const reset = useCallback(() => {
     if (widgetRef.current && window.turnstile) {
@@ -37,9 +76,10 @@ function useTurnstile(onVerified: (token: string) => void, onExpired: () => void
     }
   }, []);
 
-  return { containerRef, mount, reset };
+  return { containerRef, reset };
 }
 
+// ── Component ────────────────────────────────────────────────────────────────
 type Step = "form" | "verify";
 
 const Register = () => {
@@ -56,31 +96,10 @@ const Register = () => {
   const [formError, setFormError] = useState("");
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
-  const { containerRef, mount, reset } = useTurnstile(
+  const { containerRef, reset } = useTurnstile(
     (token) => setCaptchaToken(token),
     () => setCaptchaToken(null),
   );
-
-  useEffect(() => {
-    const mountWidget = () => {
-      if (containerRef.current && window.turnstile) {
-        mount();
-      }
-    };
-
-    if (!document.querySelector("#cf-turnstile-script")) {
-      const script = document.createElement("script");
-      script.id = "cf-turnstile-script";
-      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-      script.async = true;
-      script.defer = true;
-      script.onload = () => setTimeout(mountWidget, 150);
-      document.head.appendChild(script);
-    } else {
-      // Script already in DOM (navigated back to page)
-      setTimeout(mountWidget, 150);
-    }
-  }, []);
 
   const getPasswordStrength = (pw: string) => {
     let score = 0;
@@ -162,7 +181,7 @@ const Register = () => {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
 
-      {/* ── Left — Brand panel ────────────────────────────────────────────── */}
+      {/* ── Left — Brand panel ──────────────────────────────────────────── */}
       <div className="relative hidden lg:flex lg:w-[48%] xl:w-[52%] bg-primary items-center justify-center overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-accent/20 blur-3xl animate-pulse-glow" />
@@ -170,7 +189,8 @@ const Register = () => {
           <div
             className="absolute inset-0 opacity-[0.04]"
             style={{
-              backgroundImage: "linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.8) 1px, transparent 1px)",
+              backgroundImage:
+                "linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.8) 1px, transparent 1px)",
               backgroundSize: "60px 60px",
             }}
           />
@@ -218,12 +238,14 @@ const Register = () => {
 
           <div className="flex items-center gap-2 pt-2">
             <Shield className="h-3.5 w-3.5 text-accent/70" />
-            <span className="text-primary-foreground/35 text-xs">NDPR-compliant · Supabase enterprise storage</span>
+            <span className="text-primary-foreground/35 text-xs">
+              NDPR-compliant · Supabase enterprise storage
+            </span>
           </div>
         </motion.div>
       </div>
 
-      {/* ── Right — Form ─────────────────────────────────────────────────── */}
+      {/* ── Right — Form ────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col p-6 sm:p-10 lg:p-14 bg-background">
         <motion.div
           className="w-full max-w-md mx-auto space-y-7 flex-1 flex flex-col justify-center"
@@ -307,10 +329,20 @@ const Register = () => {
                       <div className="space-y-1 mt-1">
                         <div className="flex gap-1">
                           {[1, 2, 3, 4].map((i) => (
-                            <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${strength.score >= i ? strength.color : "bg-muted"}`} />
+                            <div
+                              key={i}
+                              className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                                strength.score >= i ? strength.color : "bg-muted"
+                              }`}
+                            />
                           ))}
                         </div>
-                        <p className={`text-xs font-medium ${strength.score <= 1 ? "text-red-500" : strength.score <= 2 ? "text-orange-400" : strength.score <= 3 ? "text-yellow-600" : "text-emerald-600"}`}>
+                        <p className={`text-xs font-medium ${
+                          strength.score <= 1 ? "text-red-500"
+                          : strength.score <= 2 ? "text-orange-400"
+                          : strength.score <= 3 ? "text-yellow-600"
+                          : "text-emerald-600"
+                        }`}>
                           {strength.label} password{strength.score < 3 ? " — add uppercase, numbers, or symbols" : ""}
                         </p>
                       </div>
@@ -332,7 +364,7 @@ const Register = () => {
 
                   {/* Cloudflare Turnstile */}
                   <div className="py-1">
-                    <div ref={containerRef} />
+                    <div ref={containerRef} style={{ minHeight: "65px" }} />
                     {!captchaToken && (
                       <p className="text-xs text-muted-foreground mt-2 text-center">
                         Complete the security check above to continue
@@ -345,10 +377,11 @@ const Register = () => {
                     className="w-full h-12 font-semibold gap-2 text-base"
                     disabled={loading || !captchaToken}
                   >
-                    {loading
-                      ? <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" />
-                      : (<>Create Account <ArrowRight className="h-4 w-4" /></>)
-                    }
+                    {loading ? (
+                      <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" />
+                    ) : (
+                      <>Create Account <ArrowRight className="h-4 w-4" /></>
+                    )}
                   </Button>
                 </form>
 
@@ -394,7 +427,11 @@ const Register = () => {
                   disabled={loading || otp.length !== 6}
                   onClick={handleVerify}
                 >
-                  {loading ? <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" /> : "Verify & Continue"}
+                  {loading ? (
+                    <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" />
+                  ) : (
+                    "Verify & Continue"
+                  )}
                 </Button>
 
                 <div className="text-center space-y-2">
@@ -419,8 +456,10 @@ const Register = () => {
         {/* Footer */}
         <div className="w-full max-w-md mx-auto border-t border-border pt-5 mt-5 space-y-1.5">
           <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-            <a href="mailto:support@assignify.com.ng?subject=Assignify Support"
-              className="flex items-center gap-1 hover:text-primary transition-colors">
+            <a
+              href="mailto:support@assignify.com.ng?subject=Assignify Support"
+              className="flex items-center gap-1 hover:text-primary transition-colors"
+            >
               <Mail className="h-3 w-3" />
               <span>support@assignify.com.ng</span>
             </a>

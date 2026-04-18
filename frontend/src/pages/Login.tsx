@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback, useEffect, } from "react";
-import { useNavigate, Link, } from "react-router-dom";
-import { Eye, EyeOff, ArrowRight, Mail, Phone, AlertCircle, Shield } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { Eye, EyeOff, ArrowRight, Mail, AlertCircle, Shield } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,40 +9,78 @@ import api from "@/api/axios";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import AssignifyLogo from "@/components/AssignifyLogo";
 
-// ── Cloudflare Turnstile ─────────────────────────────────────────────────────
-// Replace with your actual Turnstile site key from dash.cloudflare.com → Turnstile
-// Use "1x00000000000000000000AA" for local testing (always passes)
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
 
+// ── Shared script loader (safe to call multiple times) ───────────────────────
+function loadTurnstileScript() {
+  if (document.querySelector("#cf-turnstile-script")) return;
+  const script = document.createElement("script");
+  script.id = "cf-turnstile-script";
+  script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+  script.async = true;
+  script.defer = true;
+  document.head.appendChild(script);
+}
 
-function useTurnstile(onVerified: (token: string) => void, onExpired: () => void) {
+function useTurnstile(
+  onVerified: (token: string) => void,
+  onExpired: () => void,
+) {
   const widgetRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [ready, setReady] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const mount = useCallback(() => {
-    if (!containerRef.current || !window.turnstile) return;
-    if (widgetRef.current) return; // already mounted
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const mountWidget = useCallback(() => {
+    if (!containerRef.current || !window.turnstile || widgetRef.current) return;
     widgetRef.current = window.turnstile.render(containerRef.current, {
       sitekey: TURNSTILE_SITE_KEY,
-      callback: (token: string) => { setReady(true); onVerified(token); },
-      "expired-callback": () => { setReady(false); onExpired(); },
-      "error-callback": () => { setReady(false); onExpired(); },
+      callback: (token: string) => onVerified(token),
+      "expired-callback": () => onExpired(),
+      "error-callback": () => onExpired(),
       theme: "light",
       size: "normal",
     });
+    stopPolling();
   }, [onVerified, onExpired]);
+
+  useEffect(() => {
+    loadTurnstileScript();
+
+    // Poll until window.turnstile is available — works whether the script
+    // was just injected OR was already loaded from a previous page visit.
+    pollRef.current = setInterval(() => {
+      if (window.turnstile) {
+        mountWidget();
+      }
+    }, 100);
+
+    return () => {
+      stopPolling();
+      // Clean up widget on unmount so it doesn't linger in the DOM
+      if (widgetRef.current && window.turnstile) {
+        try { window.turnstile.remove(widgetRef.current); } catch (_) {}
+        widgetRef.current = null;
+      }
+    };
+  }, [mountWidget]);
 
   const reset = useCallback(() => {
     if (widgetRef.current && window.turnstile) {
       window.turnstile.reset(widgetRef.current);
-      setReady(false);
     }
   }, []);
 
-  return { containerRef, ready, mount, reset };
+  return { containerRef, reset };
 }
 
+// ── Component ────────────────────────────────────────────────────────────────
 const Login = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -52,32 +90,10 @@ const Login = () => {
   const [error, setError] = useState("");
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
-  const { containerRef, ready, mount, reset } = useTurnstile(
+  const { containerRef, reset } = useTurnstile(
     (token) => setCaptchaToken(token),
     () => setCaptchaToken(null),
   );
-
-  // Mount Turnstile once the script loads
-  useEffect(() => {
-    const mountWidget = () => {
-      if (containerRef.current && window.turnstile) {
-        mount();
-      }
-    };
-
-    if (!document.querySelector("#cf-turnstile-script")) {
-      const script = document.createElement("script");
-      script.id = "cf-turnstile-script";
-      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-      script.async = true;
-      script.defer = true;
-      script.onload = () => setTimeout(mountWidget, 150);
-      document.head.appendChild(script);
-    } else {
-      // Script already in DOM (navigated back to page)
-      setTimeout(mountWidget, 150);
-    }
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,7 +115,10 @@ const Login = () => {
       }
       navigate("/dashboard");
     } catch (err: any) {
-      const message = err.response?.data?.detail || err.response?.data?.message || "Something went wrong. Please try again.";
+      const message =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        "Something went wrong. Please try again.";
       setError(message);
       reset();
       setCaptchaToken(null);
@@ -111,16 +130,16 @@ const Login = () => {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
 
-      {/* ── Left — Brand panel ────────────────────────────────────────────── */}
+      {/* ── Left — Brand panel ──────────────────────────────────────────── */}
       <div className="relative hidden lg:flex lg:w-[48%] xl:w-[52%] bg-primary items-center justify-center overflow-hidden">
-        {/* Background orbs */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-accent/20 blur-3xl animate-pulse-glow" />
           <div className="absolute bottom-0 right-0 w-[400px] h-[400px] rounded-full bg-primary-foreground/5 blur-3xl animate-pulse-glow [animation-delay:1.5s]" />
           <div
             className="absolute inset-0 opacity-[0.04]"
             style={{
-              backgroundImage: "linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.8) 1px, transparent 1px)",
+              backgroundImage:
+                "linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.8) 1px, transparent 1px)",
               backgroundSize: "60px 60px",
             }}
           />
@@ -140,7 +159,8 @@ const Login = () => {
               <span className="italic text-accent">simplified.</span>
             </h1>
             <p className="text-primary-foreground/60 text-base leading-relaxed">
-              Create, collect, and grade — all from one beautiful dashboard. Built specifically for Nigerian university lecturers.
+              Create, collect, and grade — all from one beautiful dashboard.
+              Built specifically for Nigerian university lecturers.
             </p>
           </div>
 
@@ -166,15 +186,16 @@ const Login = () => {
             ))}
           </div>
 
-          {/* Trust badge */}
           <div className="flex items-center gap-2 pt-2">
             <Shield className="h-3.5 w-3.5 text-accent/70" />
-            <span className="text-primary-foreground/35 text-xs">Secured with NDPR-compliant data storage</span>
+            <span className="text-primary-foreground/35 text-xs">
+              Secured with NDPR-compliant data storage
+            </span>
           </div>
         </motion.div>
       </div>
 
-      {/* ── Right — Form ─────────────────────────────────────────────────── */}
+      {/* ── Right — Form ────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col p-6 sm:p-10 lg:p-14 bg-background">
         <motion.div
           className="w-full max-w-md mx-auto space-y-7 flex-1 flex flex-col justify-center"
@@ -188,9 +209,13 @@ const Login = () => {
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-2">Lecturer Portal</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-2">
+              Lecturer Portal
+            </p>
             <h2 className="font-display text-3xl font-normal text-foreground">Welcome back</h2>
-            <p className="text-muted-foreground text-sm mt-1.5">Sign in to your account to continue</p>
+            <p className="text-muted-foreground text-sm mt-1.5">
+              Sign in to your account to continue
+            </p>
           </div>
 
           {error && (
@@ -236,14 +261,14 @@ const Login = () => {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
             {/* Cloudflare Turnstile */}
             <div className="py-1">
-              <div ref={containerRef} />
+              <div ref={containerRef} style={{ minHeight: "65px" }} />
               {!captchaToken && (
                 <p className="text-xs text-muted-foreground mt-2 text-center">
                   Complete the security check above to sign in
@@ -256,10 +281,11 @@ const Login = () => {
               className="w-full h-12 font-semibold gap-2 text-base"
               disabled={loading || !captchaToken}
             >
-              {loading
-                ? <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" />
-                : (<>Sign In <ArrowRight className="h-4 w-4" /></>)
-              }
+              {loading ? (
+                <LoadingSpinner className="p-0 [&_svg]:h-5 [&_svg]:w-5" />
+              ) : (
+                <>Sign In <ArrowRight className="h-4 w-4" /></>
+              )}
             </Button>
           </form>
 
@@ -274,8 +300,10 @@ const Login = () => {
         {/* Footer */}
         <div className="w-full max-w-md mx-auto border-t border-border pt-5 mt-5 space-y-1.5">
           <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-            <a href="mailto:support@assignify.com.ng?subject=Assignify Support"
-              className="flex items-center gap-1 hover:text-primary transition-colors">
+            <a
+              href="mailto:support@assignify.com.ng?subject=Assignify Support"
+              className="flex items-center gap-1 hover:text-primary transition-colors"
+            >
               <Mail className="h-3 w-3" />
               <span>support@assignify.com.ng</span>
             </a>
