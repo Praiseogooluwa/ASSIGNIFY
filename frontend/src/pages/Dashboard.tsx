@@ -112,7 +112,7 @@ const Dashboard = () => {
     <SidebarLayout>
       <div className="p-6 lg:p-8 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="font-display text-3xl text-foreground">My Assignments</h1>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">My Assignments</h1>
           <div className="flex items-center gap-2">
             <Button variant="outline" className="gap-2" onClick={() => { setShowCollation(!showCollation); setSelectedIds([]); setCollationClasslist(null); }}>
               <BarChart2 className="h-4 w-4" />

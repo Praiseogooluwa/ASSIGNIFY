@@ -4,10 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>ASSIGNIFY | Smart Assignment Management</title>
-    <meta name="description" content="Create assignments, share submission links, and track student submissions with Assignify." />
+    <title>Assignify — Assignment Management for Nigerian University Lecturers</title>
+    <meta name="description" content="Assignify helps Nigerian university lecturers create assignments, collect student submissions via a single link, and generate CA collation reports in one click. Free for all lecturers." />
+    <meta name="keywords" content="assignment management Nigeria, university assignment portal, CA collation, student submission tracker, Nigerian lecturer tool, Assignify" />
+    <meta name="author" content="Isaiah Ogooluwa Bakare" />
+    <meta name="robots" content="index, follow" />
 
-    <!-- Canonical URL — prevents www vs non-www duplicate indexing -->
+    <!-- Canonical URL -->
     <link rel="canonical" href="https://assignify.com.ng/" />
 
     <!-- Sitemap reference -->
@@ -18,17 +21,24 @@
     <link rel="alternate icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon.svg" />
 
-    <!-- OG / Social -->
-    <meta property="og:title" content="ASSIGNIFY | Smart Assignment Management" />
-    <meta property="og:description" content="Create assignments, share submission links, and track student submissions with Assignify." />
+    <!-- Open Graph -->
+    <meta property="og:title" content="Assignify — Assignment Management for Nigerian University Lecturers" />
+    <meta property="og:description" content="Create assignments, share one link, collect submissions and generate your CA report — without WhatsApp chaos or manual spreadsheets. Free for all lecturers." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://assignify.com.ng" />
     <meta property="og:image" content="https://assignify.com.ng/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="Assignify" />
+    <meta property="og:locale" content="en_NG" />
 
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="ASSIGNIFY | Smart Assignment Management" />
-    <meta name="twitter:description" content="Create assignments, share submission links, and track student submissions with Assignify." />
+    <meta name="twitter:title" content="Assignify — Assignment Management for Nigerian University Lecturers" />
+    <meta name="twitter:description" content="Create assignments, share one link, collect submissions and generate your CA report — free for all lecturers." />
     <meta name="twitter:image" content="https://assignify.com.ng/og-image.png" />
+
+    <!-- Password reset hash redirect -->
     <script>
       (function () {
         var hash = window.location.hash;
@@ -36,10 +46,8 @@
           var params = new URLSearchParams(hash.replace('#', ''));
           var type = params.get('type');
           if (type === 'recovery') {
-            // Password reset — go to reset password page
             window.location.replace('/reset-password' + window.location.hash);
           }
-          // signup type handled by Supabase automatically
         }
       })();
     </script>

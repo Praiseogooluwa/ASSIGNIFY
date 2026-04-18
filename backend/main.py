@@ -256,6 +256,7 @@ async def register(
     full_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
+    cf_token: str = Form(default=""),
 ):
     """
     Register a new lecturer.
@@ -263,6 +264,9 @@ async def register(
     - Enforces password strength: 8+ chars, 1 uppercase, 1 number
     - Supabase sends OTP email automatically
     """
+    # ── Turnstile CAPTCHA check ────────────────────────────────────────────────
+    if not await verify_turnstile(cf_token):
+        raise HTTPException(status_code=400, detail="Security check failed. Please refresh and try again.")
     validate_password_strength(password)
     try:
         response = supabase.auth.sign_up({
@@ -293,6 +297,21 @@ async def register(
             # Return generic success to prevent email enumeration
             return {"message": "Verification code sent to your email"}
         raise HTTPException(status_code=400, detail="Registration failed. Please try again.")
+
+async def verify_turnstile(token: str) -> bool:
+    """Verify Cloudflare Turnstile token. Returns True in dev if no key is set."""
+    secret = os.getenv("TURNSTILE_SECRET_KEY", "")
+    if not secret:
+        return os.getenv("ENVIRONMENT", "development") == "development"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.post(
+                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                data={"secret": secret, "response": token}
+            )
+            return r.json().get("success", False)
+    except Exception:
+        return False
 
 
 @app.post("/auth/verify")
@@ -342,6 +361,7 @@ async def login(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    cf_token: str = Form(default=""),
 ):
     """
     Login and return JWT token.
@@ -349,6 +369,9 @@ async def login(
     - Returns specific error if email not confirmed yet
     - Returns generic error for wrong password (security best practice)
     """
+    # ── Turnstile CAPTCHA check ────────────────────────────────────────────────
+    if not await verify_turnstile(cf_token):
+        raise HTTPException(status_code=400, detail="Security check failed. Please refresh and try again.")
     # ── Lockout check ──────────────────────────────────────────────────────────
     record = _failed_logins[email]
     if record["locked_until"] and datetime.now(timezone.utc) < record["locked_until"]:
@@ -395,6 +418,7 @@ async def login(
                 detail=f"Too many failed attempts. Account locked for {LOCKOUT_MINUTES} minutes."
             )
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
 
 
 @app.post("/auth/forgot-password")

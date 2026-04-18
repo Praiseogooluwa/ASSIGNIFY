@@ -500,14 +500,7 @@ const Landing = () => {
           </div>
 
           <div className="border-t border-white/5 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/25">
-            <p>
-              Built by{" "}
-              <a href="https://www.linkedin.com/in/praise-ogooluwa" target="_blank" rel="noopener noreferrer"
-                className="text-[#1abb9b]/70 hover:text-[#1abb9b] transition-colors">
-                Isaiah Ogooluwa Bakare
-              </a>{" "}
-              · © 2026 Assignify
-            </p>
+            <p>© {new Date().getFullYear()} Assignify. All rights reserved.</p>
             <div className="flex items-center gap-4">
               <a href="mailto:support@assignify.com.ng" className="hover:text-white/50 transition-colors">support@assignify.com.ng</a>
               <Link to="/login" className="hover:text-white/50 transition-colors">Lecturer Login</Link>

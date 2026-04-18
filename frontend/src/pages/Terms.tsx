@@ -109,7 +109,7 @@ const Terms = () => {
               All student-submitted files remain the intellectual property of the respective students. By submitting through Assignify, students grant the platform a limited, non-exclusive licence to store and display the file to the assignment-owning lecturer only.
             </p>
             <p>
-              The Assignify name, logo, and platform code are the intellectual property of Isaiah Ogooluwa Bakare. You may not reproduce or use them without written permission.
+              The Assignify name, logo, and platform code are proprietary. You may not reproduce or use them without written permission from the Assignify team.
             </p>
           </section>
 

@@ -36,7 +36,7 @@ const Privacy = () => {
             <h2 className="text-white text-lg font-semibold">1. Who we are</h2>
             <p>
               Assignify ("we", "us", "our") is an assignment management platform built for Nigerian universities.
-              It is operated by Isaiah Ogooluwa Bakare. You can contact us at{" "}
+              You can contact us at{" "}
               <a href="mailto:support@assignify.com.ng" className="text-[#1abb9b] hover:underline">support@assignify.com.ng</a>.
             </p>
           </section>

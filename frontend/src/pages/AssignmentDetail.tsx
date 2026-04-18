@@ -246,7 +246,7 @@ const AssignmentDetail = () => {
         {/* Header */}
         <div className="space-y-1">
           <p className="text-xs font-bold text-primary uppercase tracking-widest">{assignment.course_name}</p>
-          <h1 className="font-display text-3xl font-bold text-foreground">{assignment.title}</h1>
+          <h1 className="text-2xl font-bold text-foreground">{assignment.title}</h1>
           <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
             <span>Deadline: {format(new Date(assignment.deadline), "EEE d MMM yyyy · h:mm a")}</span>
             {assignment.is_closed ? (

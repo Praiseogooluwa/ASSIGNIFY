@@ -155,14 +155,15 @@ ALTER TABLE assignments ADD COLUMN IF NOT EXISTS target_level text;
 
 ---
 
-## Author
+## Contact
 
-**Isaiah Ogooluwa Bakare (Praise)**
-- GitHub: [@Praiseogooluwa](https://github.com/Praiseogooluwa)
 - Email: support@assignify.com.ng
 
 ---
 
 ## License
 
-MIT — free to use, modify and distribute.
+Copyright (c) 2025 Assignify. All rights reserved.
+
+This software and its source code are proprietary and confidential.
+Unauthorized copying, distribution, or use is strictly prohibited.

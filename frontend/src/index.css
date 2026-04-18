@@ -55,6 +55,40 @@
 
 @layer base {
   * { @apply border-border; }
-  body { @apply bg-background text-foreground; font-family: 'Plus Jakarta Sans', sans-serif; }
-  h1, h2, h3 { font-family: 'Instrument Serif', serif; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+
+  /* Only apply Instrument Serif to headings that explicitly use font-display class
+     or are inside the landing page. Dashboard/app headings use Plus Jakarta Sans. */
+  .font-display {
+    font-family: 'Instrument Serif', serif;
+  }
+
+  /* Landing page full-page dark wrapper inherits serif for its headings */
+  .landing-page h1,
+  .landing-page h2 {
+    font-family: 'Instrument Serif', serif;
+  }
+
+  /* Auth pages — headings use display font only where font-display class is applied */
+}
+
+/* ── Stagger animation helpers ─────────────────────────────────────────────── */
+@layer utilities {
+  .animate-delay-100 { animation-delay: 100ms; }
+  .animate-delay-200 { animation-delay: 200ms; }
+  .animate-delay-300 { animation-delay: 300ms; }
+  .animate-delay-400 { animation-delay: 400ms; }
+  .animate-delay-500 { animation-delay: 500ms; }
+  .animate-delay-600 { animation-delay: 600ms; }
+  .animate-delay-700 { animation-delay: 700ms; }
+  .animate-delay-800 { animation-delay: 800ms; }
+
+  /* Turnstile widget centering */
+  .cf-turnstile {
+    display: flex;
+    justify-content: center;
+  }
 }

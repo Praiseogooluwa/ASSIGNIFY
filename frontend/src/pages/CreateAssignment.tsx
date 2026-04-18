@@ -63,7 +63,7 @@ const CreateAssignment = () => {
   return (
     <SidebarLayout>
       <div className="p-6 lg:p-8 max-w-2xl">
-        <h1 className="font-display text-3xl text-foreground mb-8">Create Assignment</h1>
+        <h1 className="text-2xl font-bold text-foreground mb-8">Create Assignment</h1>
 
         <form onSubmit={handleSubmit} className="space-y-6 bg-card rounded-lg border p-6">
           <div className="space-y-2">

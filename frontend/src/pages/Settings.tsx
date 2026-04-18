@@ -76,7 +76,7 @@ const Settings = () => {
   return (
     <SidebarLayout>
       <div className="p-6 lg:p-10 max-w-xl">
-        <h1 className="font-display text-3xl text-foreground mb-1">Settings</h1>
+        <h1 className="text-2xl font-bold text-foreground mb-1">Settings</h1>
         <p className="text-muted-foreground text-sm mb-8">Manage your account preferences</p>
 
         <div className="bg-card border rounded-xl p-6 space-y-5">
