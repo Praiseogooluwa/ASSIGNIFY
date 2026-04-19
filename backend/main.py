@@ -299,18 +299,25 @@ async def register(
         raise HTTPException(status_code=400, detail="Registration failed. Please try again.")
 
 async def verify_turnstile(token: str) -> bool:
-    """Verify Cloudflare Turnstile token. Returns True in dev if no key is set."""
+    """Verify Cloudflare Turnstile token."""
     secret = os.getenv("TURNSTILE_SECRET_KEY", "")
     if not secret:
-        return os.getenv("ENVIRONMENT", "development") == "development"
+        print("⚠️  TURNSTILE_SECRET_KEY is not set!", flush=True)
+        return False
+    if not token:
+        print("⚠️  No cf_token received from frontend!", flush=True)
+        return False
     try:
-        async with httpx.AsyncClient(timeout=5.0) as c:
+        async with httpx.AsyncClient(timeout=10.0) as c:
             r = await c.post(
                 "https://challenges.cloudflare.com/turnstile/v0/siteverify",
                 data={"secret": secret, "response": token}
             )
-            return r.json().get("success", False)
-    except Exception:
+            result = r.json()
+            print(f"🔍 Turnstile verify result: {result}", flush=True)
+            return result.get("success", False)
+    except Exception as e:
+        print(f"❌ Turnstile exception: {e}", flush=True)
         return False
 
 
