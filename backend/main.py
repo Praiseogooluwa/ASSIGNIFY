@@ -486,6 +486,236 @@ async def get_departments():
     return DEPARTMENTS
 
 
+# ─── Academic Sessions ───────────────────────────────────────────────────────
+
+@app.get("/sessions")
+async def get_sessions(user=Depends(get_current_user)):
+    result = supabase.table("academic_sessions")\
+        .select("*, semesters(*)")\
+        .eq("lecturer_id", str(user.id))\
+        .order("created_at", desc=True)\
+        .execute()
+    return result.data
+
+
+@app.post("/sessions")
+async def create_session(
+    title: str = Form(...),
+    user=Depends(get_current_user)
+):
+    title = title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Session title is required")
+    # Mark all existing sessions as not current
+    supabase.table("academic_sessions")\
+        .update({"is_current": False})\
+        .eq("lecturer_id", str(user.id))\
+        .execute()
+    result = supabase.table("academic_sessions").insert({
+        "lecturer_id": str(user.id),
+        "title": title,
+        "is_current": True,
+    }).execute()
+    return result.data[0]
+
+
+@app.patch("/sessions/{session_id}/set-current")
+async def set_current_session(session_id: str, user=Depends(get_current_user)):
+    existing = supabase.table("academic_sessions")\
+        .select("lecturer_id").eq("id", session_id).single().execute()
+    if not existing.data or existing.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    supabase.table("academic_sessions")\
+        .update({"is_current": False})\
+        .eq("lecturer_id", str(user.id))\
+        .execute()
+    result = supabase.table("academic_sessions")\
+        .update({"is_current": True})\
+        .eq("id", session_id)\
+        .execute()
+    return result.data[0]
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, user=Depends(get_current_user)):
+    existing = supabase.table("academic_sessions")\
+        .select("lecturer_id").eq("id", session_id).single().execute()
+    if not existing.data or existing.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    supabase.table("academic_sessions").delete().eq("id", session_id).execute()
+    return {"message": "Session deleted"}
+
+
+# ─── Semesters ────────────────────────────────────────────────────────────────
+
+@app.get("/sessions/{session_id}/semesters")
+async def get_semesters(session_id: str, user=Depends(get_current_user)):
+    result = supabase.table("semesters")\
+        .select("*")\
+        .eq("session_id", session_id)\
+        .eq("lecturer_id", str(user.id))\
+        .order("created_at")\
+        .execute()
+    return result.data
+
+
+@app.post("/sessions/{session_id}/semesters")
+async def create_semester(
+    session_id: str,
+    name: str = Form(...),
+    user=Depends(get_current_user)
+):
+    if name not in ("First", "Second"):
+        raise HTTPException(status_code=400, detail="Semester name must be 'First' or 'Second'")
+    session = supabase.table("academic_sessions")\
+        .select("lecturer_id").eq("id", session_id).single().execute()
+    if not session.data or session.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    # Deactivate other semesters for this lecturer
+    supabase.table("semesters")\
+        .update({"is_active": False})\
+        .eq("lecturer_id", str(user.id))\
+        .execute()
+    try:
+        result = supabase.table("semesters").insert({
+            "session_id": session_id,
+            "lecturer_id": str(user.id),
+            "name": name,
+            "is_active": True,
+        }).execute()
+        return result.data[0]
+    except Exception as e:
+        if "unique" in str(e).lower():
+            raise HTTPException(status_code=409, detail=f"{name} Semester already exists in this session")
+        raise HTTPException(status_code=400, detail="Failed to create semester")
+
+
+@app.patch("/semesters/{semester_id}/set-active")
+async def set_active_semester(semester_id: str, user=Depends(get_current_user)):
+    existing = supabase.table("semesters")\
+        .select("lecturer_id").eq("id", semester_id).single().execute()
+    if not existing.data or existing.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Semester not found")
+    supabase.table("semesters")\
+        .update({"is_active": False})\
+        .eq("lecturer_id", str(user.id))\
+        .execute()
+    result = supabase.table("semesters")\
+        .update({"is_active": True})\
+        .eq("id", semester_id)\
+        .execute()
+    return result.data[0]
+
+
+# ─── Courses ──────────────────────────────────────────────────────────────────
+
+@app.get("/courses")
+async def get_courses(
+    semester_id: Optional[str] = None,
+    user=Depends(get_current_user)
+):
+    query = supabase.table("courses")\
+        .select("*")\
+        .eq("lecturer_id", str(user.id))
+    if semester_id:
+        query = query.eq("semester_id", semester_id)
+    result = query.order("course_code").execute()
+    courses = result.data
+    # Attach assignment count per course
+    for c in courses:
+        count_res = supabase.table("assignments")\
+            .select("id", count="exact")\
+            .eq("course_id", c["id"])\
+            .execute()
+        c["assignment_count"] = count_res.count or 0
+    return courses
+
+
+@app.post("/courses")
+async def create_course(
+    semester_id: str = Form(...),
+    course_code: str = Form(...),
+    course_name: str = Form(...),
+    target_level: Optional[str] = Form(None),
+    user=Depends(get_current_user)
+):
+    semester = supabase.table("semesters")\
+        .select("lecturer_id").eq("id", semester_id).single().execute()
+    if not semester.data or semester.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Semester not found")
+    result = supabase.table("courses").insert({
+        "semester_id": semester_id,
+        "lecturer_id": str(user.id),
+        "course_code": course_code.strip().upper(),
+        "course_name": course_name.strip(),
+        "target_level": target_level.strip() if target_level and target_level.strip() else None,
+    }).execute()
+    return result.data[0]
+
+
+@app.patch("/courses/{course_id}")
+async def update_course(
+    course_id: str,
+    course_code: Optional[str] = Form(None),
+    course_name: Optional[str] = Form(None),
+    target_level: Optional[str] = Form(None),
+    user=Depends(get_current_user)
+):
+    existing = supabase.table("courses")\
+        .select("lecturer_id").eq("id", course_id).single().execute()
+    if not existing.data or existing.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Course not found")
+    update_data = {}
+    if course_code: update_data["course_code"] = course_code.strip().upper()
+    if course_name: update_data["course_name"] = course_name.strip()
+    if target_level is not None:
+        update_data["target_level"] = target_level.strip() if target_level.strip() else None
+    result = supabase.table("courses")\
+        .update(update_data).eq("id", course_id).execute()
+    return result.data[0]
+
+
+@app.delete("/courses/{course_id}")
+async def delete_course(course_id: str, user=Depends(get_current_user)):
+    existing = supabase.table("courses")\
+        .select("lecturer_id").eq("id", course_id).single().execute()
+    if not existing.data or existing.data["lecturer_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Course not found")
+    supabase.table("courses").delete().eq("id", course_id).execute()
+    return {"message": "Course deleted"}
+
+
+# ─── Matric Status Check (public) ─────────────────────────────────────────────
+
+@app.get("/submissions/check")
+async def check_submission_status(matric: str):
+    """Public endpoint — student enters their matric number to see all their submissions."""
+    if not matric or len(matric.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Invalid matric number")
+    matric = matric.strip().upper()
+    result = supabase.table("submissions")\
+        .select("id, full_name, matric_number, submitted_at, is_late, assignment_id")\
+        .ilike("matric_number", matric)\
+        .order("submitted_at", desc=True)\
+        .execute()
+    if not result.data:
+        return {"found": False, "submissions": []}
+    # Enrich with assignment details
+    enriched = []
+    for s in result.data:
+        a_res = supabase.table("assignments")\
+            .select("course_name, title, deadline")\
+            .eq("id", s["assignment_id"])\
+            .single().execute()
+        enriched.append({
+            **s,
+            "course_name": a_res.data["course_name"] if a_res.data else "Unknown",
+            "assignment_title": a_res.data["title"] if a_res.data else "Unknown",
+            "deadline": a_res.data["deadline"] if a_res.data else None,
+        })
+    return {"found": True, "matric": matric, "name": result.data[0]["full_name"], "submissions": enriched}
+
+
 # ─── Assignments ─────────────────────────────────────────────────────────────
 
 @app.get("/assignments")
@@ -515,7 +745,8 @@ async def create_assignment(
     deadline: str = Form(...),
     number_of_groups: Optional[int] = Form(None),
     instructions: Optional[str] = Form(None),
-    target_level: Optional[str] = Form(None),  # e.g. "100L", "200L", "300L", "400L"
+    target_level: Optional[str] = Form(None),
+    course_id: Optional[str] = Form(None),
     user=Depends(get_current_user)
 ):
     data = {
@@ -528,6 +759,7 @@ async def create_assignment(
         "target_level": target_level.strip() if target_level and target_level.strip() else None,
         "is_closed": False,
         "lecturer_id": str(user.id),
+        "course_id": course_id if course_id else None,
     }
     result = supabase.table("assignments").insert(data).execute()
     return result.data[0]

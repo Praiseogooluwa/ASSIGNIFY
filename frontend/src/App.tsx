@@ -19,6 +19,9 @@ import Landing from "./pages/Index";
 import Settings from "./pages/Settings";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
+import Courses from "./pages/Courses";
+import CourseDetail from "./pages/CourseDetail";
+import CheckStatus from "./pages/CheckStatus";
 
 
 const queryClient = new QueryClient();
@@ -64,12 +67,15 @@ const App = () => (
 
           {/* Lecturer Protected Routes */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/courses" element={<ProtectedRoute><Courses /></ProtectedRoute>} />
+          <Route path="/courses/:id" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />
           <Route path="/assignments/new" element={<ProtectedRoute><CreateAssignment /></ProtectedRoute>} />
           <Route path="/assignments/:id" element={<ProtectedRoute><AssignmentDetail /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 
           {/* Student submission — completely isolated, no auth, no nav back to lecturer pages */}
           <Route path="/submit/:id" element={<StudentSubmission />} />
+          <Route path="/check" element={<CheckStatus />} />
 
           {/* Super Admin Routes — separate token, separate flow */}
           <Route path="/admin/x9p2k/login" element={<AdminGuestRoute><AdminLogin /></AdminGuestRoute>} />

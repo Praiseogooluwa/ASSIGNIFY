@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,9 +10,13 @@ import api from "@/api/axios";
 
 const CreateAssignment = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const prefillCourseId = searchParams.get("course_id") || "";
+  const prefillCourseCode = searchParams.get("course_code") || "";
+
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    course_name: "",
+    course_name: prefillCourseCode,
     title: "",
     submission_type: "individual" as "individual" | "group",
     number_of_groups: 1,
@@ -50,9 +54,16 @@ const CreateAssignment = () => {
       if (form.target_level) {
         formData.append("target_level", form.target_level);
       }
+      if (prefillCourseId) {
+        formData.append("course_id", prefillCourseId);
+      }
       await api.post("/assignments", formData);
       toast.success("Assignment created! Share the submission link with your students.");
-      navigate("/dashboard");
+      if (prefillCourseId) {
+        navigate(`/courses/${prefillCourseId}`);
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to create assignment");
     } finally {

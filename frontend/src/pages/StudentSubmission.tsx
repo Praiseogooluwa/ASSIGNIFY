@@ -171,34 +171,56 @@ const StudentSubmission = () => {
   if (submitted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4">
-        <div className="text-center space-y-6 max-w-md">
+        <div className="text-center space-y-6 max-w-md w-full">
           <svg className="mx-auto" width="80" height="80" viewBox="0 0 80 80" fill="none">
             <circle cx="40" cy="40" r="40" fill="hsl(168, 85%, 28%)" opacity="0.1"/>
             <circle cx="40" cy="40" r="30" fill="hsl(168, 85%, 28%)" opacity="0.2"/>
             <circle cx="40" cy="40" r="20" fill="hsl(168, 85%, 28%)"/>
             <path d="M30 40L37 47L50 34" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
+
           <h1 className="font-display text-3xl text-foreground">Submission Received!</h1>
-          <div className="bg-card border rounded-lg p-5 space-y-1 text-muted-foreground">
-            <p className="font-medium text-foreground">{submittedInfo.name}</p>
+
+          {/* Receipt card */}
+          <div className="bg-card border rounded-xl p-5 space-y-1 text-muted-foreground text-left">
+            <p className="font-semibold text-foreground text-base">{submittedInfo.name}</p>
             <p className="font-mono text-sm">{submittedInfo.matric}</p>
             <p className="text-sm">{submittedInfo.time}</p>
-            <div className="pt-2 border-t mt-2">
-              <p className="text-xs text-muted-foreground mb-1">Submission Reference</p>
-              <div className="flex items-center justify-between bg-muted rounded px-3 py-2">
+            <div className="pt-3 border-t mt-3">
+              <p className="text-xs text-muted-foreground mb-1.5">Submission Reference</p>
+              <div className="flex items-center justify-between bg-muted rounded-lg px-3 py-2">
                 <span className="font-mono text-sm font-semibold text-foreground">{submissionRef}</span>
                 <button
-                  onClick={() => { navigator.clipboard.writeText(submissionRef); }}
+                  onClick={() => { navigator.clipboard.writeText(submissionRef); toast.success("Copied!"); }}
                   className="text-xs text-primary hover:underline ml-4"
                 >Copy</button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Save this ID as proof of submission</p>
+              <p className="text-xs text-muted-foreground mt-1.5">Screenshot this page as proof of submission</p>
             </div>
           </div>
+
+          {/* Check status callout */}
+          <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 text-left space-y-2">
+            <p className="text-sm font-semibold text-foreground">Want to verify later?</p>
+            <p className="text-xs text-muted-foreground">
+              You can check all your submissions anytime by visiting:
+            </p>
+            <a
+              href="/check"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-primary hover:underline bg-primary/10 px-3 py-1.5 rounded-lg"
+            >
+              assignify.com.ng/check
+            </a>
+            <p className="text-xs text-muted-foreground">
+              Enter your matric number <span className="font-semibold text-foreground">{submittedInfo.matric}</span> to confirm receipt.
+            </p>
+          </div>
+
           <p className="text-sm text-muted-foreground">
             ✅ Your submission has been recorded. You may now close this tab.
           </p>
-          {/* NO link back to login/register/dashboard — students have no business there */}
         </div>
       </div>
     );
